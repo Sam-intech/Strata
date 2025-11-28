@@ -1,163 +1,202 @@
-# data_handling/agent.py
 from dataclasses import dataclass
 from typing import Dict, Any, Optional
+
 import pandas as pd
 from pydantic import BaseModel, Field, ValidationError, field_validator
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.impute import SimpleImputer 
+# =============================================================================
 
 
-# 1. Canonical input schema for a single patient
+FEATURES = [
+  "gender",
+  "age",
+  "bmi",
+  "glucose",
+  "hba1c",
+  "blood_pressure",
+  "hypertension",
+  "heart_disease",
+  "smoking_history",
+  "insulin",
+]
+target = "diabetes_present"
+
+
+# --- Canonical input schema for a single patient/single pateint schema (for UI/inference) --- 
 class PatientInput(BaseModel):
-  # Demographics
-  age: int = Field(ge=0, le=120)
-  sex: str  # "male", "female", etc.
-
-  # Anthropometrics
+  gender: str
+  age: float = Field(ge=0, le=120)
   bmi: float = Field(gt=0)
-  waist_hip_ratio: Optional[float] = Field(default=None, gt=0)
 
-  # Vitals
-  systolic_bp: Optional[float] = None
-  diastolic_bp: Optional[float] = None
-
-  # Risk factors
-  family_history: Optional[bool] = None
-  physical_activity_level: Optional[str] = None
-  smoking_status: Optional[str] = None
-  alcohol_intake: Optional[str] = None
-
-  # Symptoms
-  polyuria: Optional[bool] = None
-  polydipsia: Optional[bool] = None
-  weight_loss: Optional[bool] = None
-  blurred_vision: Optional[bool] = None
-  fatigue: Optional[bool] = None
-
-  # Laboratory
+  glucose: Optional[float] = None
   hba1c: Optional[float] = None
-  fasting_glucose: Optional[float] = None
-  random_glucose: Optional[float] = None
-  ogtt_2h_glucose: Optional[float] = None
+  blood_pressure: Optional[float] = None
+  insulin: Optional[float] = None
 
-
-  @field_validator("sex")
-  @classmethod
-  def normalise_sex(cls, v: str) -> str:
-    v = v.strip().lower()
-    mapping = {"m": "male", "f": "female"}
-    return mapping.get(v, v)
-
-
-# 2. Feature group configuration
-FEATURE_GROUPS = {
-  "clinical": [
-    "age",
-    "sex",
-    "bmi",
-    "waist_hip_ratio",
-    "systolic_bp",
-    "diastolic_bp",
-    "family_history",
-    "physical_activity_level",
-    "smoking_status",
-    "alcohol_intake",
-    "polyuria",
-    "polydipsia",
-    "weight_loss",
-    "blurred_vision",
-    "fatigue",
-  ],
-  "lab": [
-    "hba1c",
-    "fasting_glucose",
-    "random_glucose",
-    "ogtt_2h_glucose",
-  ],
-}
-
+  hypertension: Optional[bool] = None
+  heart_disease: Optional[bool] = None
+  smoking_history: Optional[str] = None
 
 @dataclass
 class DataHandlingOutput:
   raw: pd.DataFrame
   cleaned: pd.DataFrame
-  views: Dict[str, pd.DataFrame]
+  # views: Dict[str, pd.DataFrame]
   validation_errors: Optional[Dict[str, Any]] = None
 
 
+
+# --- Dataset-specific mappers ---
+def load_diabetes_prediction(path: str) -> pd.DataFrame:
+  df = pd.read_csv(path)
+  df = df.rename(
+    columns= {
+      "HbA1c_level": "hba1c",
+      "blood_glucose_level": "glucose",
+      "diabetes": "diabetes_present",
+    }
+  )
+
+  for col in FEATURES + [target]:
+    if col not in df.columns:
+      df[col] = pd.NA
+
+  return df[
+    FEATURES + [target]
+  ]
+
+
+def load_pima(path: str) -> pd.DataFrame:
+  df = pd.read_csv(path)
+  df = df.rename(
+    columns={
+      "Glucose": "glucose",
+      "BloodPressure": "blood_pressure",
+      "Insulin": "insulin",
+      "BMI": "bmi",
+      "Age": "age",
+      "Outcome": "diabetes_present",
+    }
+  )
+  
+  for col in FEATURES + [target]:
+    if col not in df.columns:
+      df[col] = pd.NA
+
+  return df[
+    FEATURES + [target]
+  ]
+
+
+def load_mohammed(path: str) -> pd.DataFrame:
+  df = pd.read_csv(path)
+
+  mapping = {
+    "HbA1c_level": "hba1c",
+    "blood_glucose_level": "glucose",
+    "diabetes": "diabetes_present",
+  }
+  df = df.rename(columns={k: v for k, v in mapping.items() if k in df.columns})
+
+  for col in FEATURES + [target]:
+    if col not in df.columns:
+      df[col] = pd.NA
+
+  return df[
+    FEATURES + [target]
+  ]
+
+
+
+# Preprocessing Pipeline -----
+def build_preprocessor() -> ColumnTransformer:
+  numeric_features = [
+    "age",
+    "bmi",
+    "glucose",
+    "hba1c",
+    "blood_pressure",
+    "insulin",
+  ]
+
+  categorical_features = [
+    "gender",
+    "hypertension",
+    "heart_disease",
+    "smoking_history",
+  ]
+
+  numeric_pipeline = Pipeline(
+    steps=[
+      ("imputer", SimpleImputer(strategy="median")),
+      ("scaler", StandardScaler()),
+    ]
+  )
+
+  categorical_pipleine = Pipeline(
+    steps=[
+      ("imputer", SimpleImputer(strategy="most_frequent")),
+      ("encoder", OneHotEncoder(handle_unknown="ignore")),
+    ]
+  )
+
+  preprocessor = ColumnTransformer(
+    transformers=[
+      ("num", numeric_pipeline, numeric_features),
+      ("cat", categorical_pipleine, categorical_features),
+    ]
+  )
+  return preprocessor
+
+
+
+# DataHandling Agent -----
 class DataHandlingAgent:
-  """
-  Central gatekeeper for all patient data.
-
-  It:
-  - validates raw input
-  - applies the pre-fitted preprocessing pipeline
-  - splits features into views per agent
-  """
-
-  def __init__(self, preprocessor, feature_groups: Dict[str, list] = None):
-    """
-    preprocessor: fitted sklearn Pipeline / ColumnTransformer
-    feature_groups: mapping from agent name -> list of canonical feature names
-    """
+  def __init__(self, preprocessor):
     self.preprocessor = preprocessor
-    self.feature_groups = feature_groups or FEATURE_GROUPS
 
+  # Training: ingest a unified dataframe (after mapping)
+  def ingest_batch(self, df_raw: pd.DataFrame) -> DataHandlingOutput:
+    x = df_raw[FEATURES].copy()
+    df_clean = self.preprocessor.transform(x)
+    if hasattr(self.preprocessor, "get_feature_names_out"):
+      cols = self.preprocessor.get_feature_names_out()
+      df_clean = pd.DataFrame(df_clean, columns=cols)
+    else:
+      df_clean = pd.DataFrame(df_clean)
 
-  # ---------- Public API ----------
-  def ingest_single(self, raw_input: Dict[str, Any]) -> DataHandlingOutput:
-    """Used by the UI for a single patient."""
+    return DataHandlingOutput(
+      raw=df_raw, 
+      cleaned=df_clean
+    )
+
+  # inference: single patient from UI -----
+  def ingest_single(self, data: Dict[str, Any]) -> DataHandlingOutput:
     try:
-      validated = PatientInput(**raw_input)
+      validated = PatientInput(**data)
       df_raw = pd.DataFrame([validated.model_dump()])
       errors = None
     except ValidationError as e:
-      # Still try to build a DataFrame from partial data
-      df_raw = pd.DataFrame([raw_input])
+      df_raw = pd.DataFrame([data])
       errors = e.errors()
 
-    df_clean = self._preprocess(df_raw)
-    views = self._split_views(df_clean)
+    for col in FEATURES:
+      if col not in df_raw.columns:
+        df_raw[col] = pd.NA
 
-    return DataHandlingOutput(
-      raw=df_raw,
-      cleaned=df_clean,
-      views=views,
-      validation_errors=errors,
-    )
-  
-  def ingest_batch(self, df_raw: pd.DataFrame) -> DataHandlingOutput:
-    """Used during training/evaluation on secondary datasets."""
-    # Assumes df_raw columns already roughly mapped to canonical names
-    df_clean = self._preprocess(df_raw)
-    views = self._split_views(df_clean)
-
-    return DataHandlingOutput(
-      raw=df_raw,
-      cleaned=df_clean,
-      views=views,
-      validation_errors=None,
-    )
-
-
-  # ---------- Internal helpers ----------
-  def _preprocess(self, df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Apply fitted preprocessing: imputation, encoding, scaling.
-    The preprocessor must be trained separately on your training data.
-    """
-    transformed = self.preprocessor.transform(df)
+    df_clean = self.preprocessor.transform(df_raw[FEATURES])
     if hasattr(self.preprocessor, "get_feature_names_out"):
       cols = self.preprocessor.get_feature_names_out()
-      return pd.DataFrame(transformed, columns=cols)
-    # Fallback: keep as numpy array with generic column names
-    return pd.DataFrame(transformed)
-  
-  def _split_views(self, df_clean: pd.DataFrame) -> Dict[str, pd.DataFrame]:
-    """
-    Selects columns for each agent based on canonical feature names.
-    For encoded features, you may need a mapping from original -> encoded names.
-    """
-    views = {}
-    for agent, features in self.feature_groups.items():
-      cols = [c for c in df_clean.columns if any(f in c for f in features)]
-      views[agent] = df_clean[cols].copy()
-    return views
+      df_clean = pd.DataFrame(df_clean, columns=cols)
+    else:
+      df_clean = pd.DataFrame(df_clean)
+
+    return DataHandlingOutput(
+      raw=df_raw,
+      cleaned=df_clean,
+      validation_errors=errors,
+    )
+
