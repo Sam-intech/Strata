@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+from typing import Optional
 
 import joblib
 import pandas as pd
@@ -7,14 +8,14 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, roc_auc_score
 
-from agent import (FEATURES, target, load_diabetes_prediction, load_pima, load_mohammed, build_preprocessor)
+from src.agents.datahandling.agent import (FEATURES, TARGET, load_diabetes_prediction, load_pima, load_mohammed, build_preprocessor)
 # ===========================================================================================================================
 
 
 
 def load_datasets(diabetes_path: Path,
                   pima_path: Path,
-                  mohammed_path: Path | None = None) -> pd.DataFrame:
+                  mohammed_path: Optional[Path] = None) -> pd.DataFrame:
   """
   Load and unify all datasets into a single DataFrame.
   All outputs must have the same columns as defined in FEATURES + [target]. 
@@ -35,7 +36,7 @@ def load_datasets(diabetes_path: Path,
   all_dset = pd.concat(dsets, ignore_index=True)
 
   # drop all missing rows label just incase
-  all_dset = all_dset.dropna(subset=[target])
+  all_dset = all_dset.dropna(subset=[TARGET])
 
   return all_dset
 
@@ -60,7 +61,7 @@ def train(diabetes_path: str,
 
   print(f"[*] Combined dataset shape: {dsets.shape}")
   features = dsets[FEATURES]
-  target = dsets[target].astype(int)
+  target = dsets[TARGET].astype(int)
 
 
   # Split data
@@ -75,10 +76,10 @@ def train(diabetes_path: str,
 
 
   # Build and fit preprocessor
-  print("[*] Builing preprocesor...")
+  print("[*] Building preprocessor...")
   preprocessor = build_preprocessor()
 
-  print("[*] Fitting preprocesor on training data...")
+  print("[*] Fitting preprocessor on training data...")
   preprocessor.fit(features_train)
 
   features_train_proc = preprocessor.transform(features_train)
@@ -90,7 +91,7 @@ def train(diabetes_path: str,
   model = LogisticRegression(
     max_iter = 1000,
     class_weight = "balanced",
-    n_jobs = 1,
+    # n_jobs = 1,
   )
   model.fit(features_train_proc, target_train)
 
@@ -100,7 +101,7 @@ def train(diabetes_path: str,
   target_pred = model.predict(features_test_proc)
   target_proba = model.predict_proba(features_test_proc)[:, 1]
 
-  print("\nTested classification report:")
+  print("\nTest classification report:")
   print(classification_report(target_test, target_pred))
 
   try:
@@ -123,7 +124,7 @@ def train(diabetes_path: str,
 
   with open(meta_path, "w") as f:
     f.write(f"Features: {FEATURES}\n")
-    f.write(f"Target: {target}\n")
+    f.write(f"Target: {TARGET}\n")
     f.write(f"samples total: {len(dsets)}\n")
     f.write(f"Train size: {len(features_train)}\n")
     f.write(f"Test size: {len(features_test)}\n")
@@ -137,32 +138,32 @@ def parse_args():
   parser = argparse.ArgumentParser(description="Train T2D risk/prediction model.")
   parser.add_argument(
     "--diabetes-path", 
-    type = str, 
+    # type = str, 
     required = True, 
-    help = "Path to the diabetes prediction dataset CSV file."
+    # help = "Path to the diabetes prediction dataset CSV file."
   )
   parser.add_argument(
     "--pima-path", 
-    type = str, 
+    # type = str, 
     required = True, 
-    help = "Path to the Pima Indians Diabetes dataset CSV file."
+    # help = "Path to the Pima Indians Diabetes dataset CSV file."
   )
   parser.add_argument(
     "--mohammed-path", 
-    type=str, 
+    # type=str, 
     default = None,
-    help = "Optional path to the Mohammed et al. dataset CSV file."
+    # help = "Optional path to the Mohammed et al. dataset CSV file."
   )
   parser.add_argument(
     "--output-dir", 
     default = "artifacts",
-    help = "Directory to save the trained model and preprocessor."
+    # help = "Directory to save the trained model and preprocessor."
   )
   parser.add_argument(
     "--test-size", 
     type = float, 
     default = 0.2,
-    help = "Proportion of the dataset to include in the test split."
+    # help = "Proportion of the dataset to include in the test split."
   )
   return parser.parse_args()
 
