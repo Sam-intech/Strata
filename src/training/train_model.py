@@ -8,7 +8,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, roc_auc_score
 
-from src.agents.datahandling.agent import (FEATURES, TARGET, load_diabetes_prediction, load_pima, load_mohammed, build_preprocessor)
+from agents.datahandling.data_agent import (FEATURES, TARGET, load_diabetes_prediction, load_pima, load_mohammed, build_preprocessor)
+from agents.clinical_agent import ClinicalAssessmentAgent
 # ===========================================================================================================================
 
 
@@ -20,7 +21,8 @@ def load_datasets(diabetes_path: Path,
   Load and unify all datasets into a single DataFrame.
   All outputs must have the same columns as defined in FEATURES + [target]. 
   """
-  dsets = []
+  # dsets = []
+  dsets: list[pd.DataFrame] = []
 
   # main dataset (the kaggle 'diabetes prediction' style one)
   dset_diabetes = load_diabetes_prediction(diabetes_path)
@@ -47,9 +49,9 @@ def train(diabetes_path: str,
           mohammed_path: str | None,
           output_dir: str,
           test_size: float = 0.2,
-          random_state: int = 42):
-  output_dir = Path(output_dir)
-  output_dir.mkdir(parents=True, exist_ok=True)
+          random_state: int = 42) -> None:
+  output_dir_path = Path(output_dir)
+  output_dir_path.mkdir(parents=True, exist_ok=True)
 
   # Load datasets
   print("[*] Loading datasets...")
@@ -86,7 +88,7 @@ def train(diabetes_path: str,
   features_test_proc = preprocessor.transform(features_test)
 
 
-  # Train baseline model
+  # Train baseline model -----
   print("[*] Training logistic regression model...")
   model = LogisticRegression(
     max_iter = 1000,
@@ -95,8 +97,20 @@ def train(diabetes_path: str,
   )
   model.fit(features_train_proc, target_train)
 
+  # wrap model in ClinicalAssessmentAgent for MAS useage -----
+  if hasattr(preprocessor, "get_feature_names_out"):
+    feature_names = list(preprocessor.get_feature_names_out())
+  else:
+    feature_names = FEATURES
 
-  # Evaluate
+  clinical_agent = ClinicalAssessmentAgent(
+    model = model,
+    feature_names = feature_names,
+  )
+  clinical_agent.is_fitted_ = True
+
+
+  # Evaluation -----
   print("[*] Evaluating model on testing data...")  
   target_pred = model.predict(features_test_proc)
   target_proba = model.predict_proba(features_test_proc)[:, 1]
@@ -112,15 +126,19 @@ def train(diabetes_path: str,
 
 
   # Save artifacts
-  preprocessor_path = output_dir / "preprocessor.joblib"
-  model_path = output_dir / "diabetes_model.joblib"
-  meta_path = output_dir / "metadata.txt"
+  preprocessor_path = output_dir_path / "preprocessor.joblib"
+  model_path = output_dir_path / "diabetes_model.joblib"
+  clinical_agent_path = output_dir_path / "clinical_agent.joblib"
+  meta_path = output_dir_path / "metadata.txt"
 
   print(f"[*] Saving preprocessor to: {preprocessor_path}")
   joblib.dump(preprocessor, preprocessor_path)
 
   print(f"[*] Saving model to: {model_path}")
   joblib.dump(model, model_path)
+
+  print(f"[*] Saving clinical agent wrapper to: {clinical_agent_path}")
+  joblib.dump(clinical_agent, clinical_agent_path)
 
   with open(meta_path, "w") as f:
     f.write(f"Features: {FEATURES}\n")
@@ -173,9 +191,9 @@ def parse_args():
 if __name__ == "__main__":
   args = parse_args()
   train(
-    diabetes_path=args.diabetes_path,
-    pima_path=args.pima_path,
-    mohammed_path=args.mohammed_path,
-    output_dir=args.output_dir,
-    test_size=args.test_size,
+    diabetes_path = args.diabetes_path,
+    pima_path = args.pima_path,
+    mohammed_path = args.mohammed_path,
+    output_dir = args.output_dir,
+    test_size = args.test_size,
   ) 
