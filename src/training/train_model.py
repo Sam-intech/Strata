@@ -8,7 +8,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, roc_auc_score
 
-from agents.datahandling.data_agent import (FEATURES, TARGET, load_diabetes_prediction, load_pima, load_mohammed, build_preprocessor)
+from agents.data_agent import (FEATURES, TARGET, load_diabetes_prediction, load_pima, load_mohammed, build_preprocessor)
 from agents.clinical_agent import ClinicalAssessmentAgent
 # ===========================================================================================================================
 
