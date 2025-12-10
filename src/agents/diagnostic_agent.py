@@ -30,7 +30,9 @@ class DiagnosticConfig:
 
   # Borderline margin around thresholds (for "uncertain")
   borderline_margin: float = 0.3
+  
   # How much to weight pre-test (clinical) risk in final confidence  pretest_weight: float = 0.3  # 0–1
+  pretest_weight: float = 0.3  # 0–1
 
 
 @dataclass
