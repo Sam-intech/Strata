@@ -2,28 +2,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, Literal
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
-from pydantic import BaseModel, Field, field_validator, ValidationError, validator
+from pydantic import BaseModel, Field, field_validator, ValidationError 
 # ===============================================================================================================
 
 
 
 TestType = Literal["none", "HbA1c", "FPG", "OGTT", "repeat_test"]
 Urgency = Literal["none", "routine", "priority"]
-
 TriageLabel = Literal["low_risk", "routine_follow_up", "high_risk"]
 
-
-# config -----
+# ------------------
+# config
 @dataclass
 class LabAgentConfig:
-  """
-    Configuration for LaboratoryAgent:
-    - thresholds
-    - recency windows
-    - risk cut-offs
-  """
   # Recency
   max_lab_age_days: int = 180  # 6 months
 
@@ -41,7 +34,7 @@ class LabAgentConfig:
 
   # OGTT thresholds (2h plasma glucose, mmol/L)
   ogtt_diabetes_mmol_l: float = 11.1
-  ogtt_pre_diabetes_low_mmol_l: float = 7.0
+  ogtt_pre_diabetes_low_mmol_l: float = 7.8
 
   # Safety ranges for crude sanity checks (to flag nonsense values)
   hba1c_min_mmol_mol: float = 20.0
@@ -53,8 +46,12 @@ class LabAgentConfig:
   ogtt_min_mmol_l: float = 2.0
   ogtt_max_mmol_l: float = 30.0
 
+  # Random glucose qualitative bands (mmol/L)
+  random_glucose_elevated: float = 7.8
+  random_glucose_very_high: float = 11.1
 
 
+# -------------------
 # Input models
 class LabMeasurement(BaseModel):
   # Single lab measurement with metadata.
@@ -75,24 +72,17 @@ class LabMeasurement(BaseModel):
     return v.strip()
  
 
-
 class LabBundle(BaseModel):
-  """
-  Bundle of lab values for a single patient.
-  All fields optional: the system can work with missing labs and decide what to order.
-  """
   hba1c: Optional[LabMeasurement] = None
   fpg: Optional[LabMeasurement] = None
   ogtt: Optional[LabMeasurement] = None
   random_glucose: Optional[LabMeasurement] = None
 
 
-
 class ClinicalRiskInput(BaseModel):
   # Minimal input from Clinical Assessment Agent.
   risk_T2D_now: float = Field(ge=0.0, le=1.0)
   triage_label: Optional[TriageLabel] = None
-
 
 
 class ClinicalContext(BaseModel):
@@ -106,8 +96,8 @@ class ClinicalContext(BaseModel):
   other_context: Dict[str, Any] = Field(default_factory=dict)
 
 
-
-# Outputs -----
+# -------------------
+# Output models 
 class TestPlan(BaseModel):
   # Decision about whether and what to test.
   needs_test: bool
@@ -117,34 +107,26 @@ class TestPlan(BaseModel):
   rationale: str
 
 
-
-@dataclass
-class LabAgentOutput:
-  """
-  Output of the LaboratoryAgent.
-  - test_plan: whether to order new labs and what kind
-  - validated_labs: lab values after normalisation and basic QC
-  - lab_interpretation_tokens: structured semantic tags for Diagnostic Agent
-  - flags: misc quality flags
-  - meta: optional debug/info metadata
-  """
+# @dataclass
+class LabAgentOutput(BaseModel):
   test_plan: TestPlan
   validated_labs: LabBundle
   lab_interpretation_tokens: Dict[str, Any]
   flags: Dict[str, bool]
-  meta: Optional[Dict[str, Any]] = None
+  meta: Optional[Dict[str, Any]] = Field(default_factory = dict)
 
 
 
 
-# Laboratory Agent -----
+# ------------------------------
+# Laboratory Agent 
 class LaboratoryAgent:
   def __init__(self, config: Optional[LabAgentConfig] = None):
     self.config = config or LabAgentConfig()
 
 
   # Public Api
-  def assess(self, labs: Dict[str, Any], clinical_risk: Dict[str, Any], context: Optional[Dict[str, Any]] = None,) -> LabAgentOutput:
+  def assess(self, labs: Dict[str, Any], clinical_risk: Dict[str, Any], context: Optional[Dict[str, Any]] = None, *, now: Optional[datetime] = None) -> LabAgentOutput:
     try:
       lab_bundle = LabBundle(**labs)
     except ValidationError as e:
@@ -157,39 +139,51 @@ class LaboratoryAgent:
     
     ctx = ClinicalContext(**(context or {}))
 
+    now_dt = now or datetime.now(timezone.utc)
+    if now_dt.tzinfo is None:
+      now_dt = now_dt.replace(tzinfo=timezone.utc)
+
     # 1) Validate / normalise labs
-    validated_labs, flags = self._validate_and_normalise_labs(lab_bundle, ctx)
+    validated_labs, flags, recency_meta = self._validate_and_normalise_labs(lab_bundle, ctx, now_dt)
 
     # 2) Interpret labs w.r.t thresholds
     interpretation = self._interpret_labs(validated_labs, ctx)
 
     # 3) Decide test plan (order new test / retest / nothing)
     test_plan = self._decide_test_plan(
-      validated_labs=validated_labs,
-      risk=risk_input.risk_T2D_now,
-      context=ctx,
-      interpretation=interpretation,
+      validated_labs = validated_labs,
+      risk = risk_input.risk_T2D_now,
+      context = ctx,
+      interpretation = interpretation,
+      now_dt = now_dt,
+      flags = flags,
     )
 
-    meta = {
+    meta: Dict[str, Any] = {
       "config": self.config.__dict__,
       "triage_label": risk_input.triage_label,
+      **recency_meta,
     }
 
     return LabAgentOutput(
-      test_plan=test_plan,
-      validated_labs=validated_labs,
-      lab_interpretation_tokens=interpretation,
-      flags=flags,
-      meta=meta,
+      test_plan = test_plan,
+      validated_labs = validated_labs,
+      lab_interpretation_tokens = interpretation,
+      flags = flags,
+      meta = meta,
     )
 
 
   # internal helpers -----
-  def _validate_and_normalise_labs(self, labs: LabBundle, ctx: ClinicalContext,) -> tuple[LabBundle, Dict[str, bool]]:
+  def _validate_and_normalise_labs(self, labs: LabBundle, ctx: ClinicalContext, now_dt: datetime,) -> tuple[LabBundle, Dict[str, bool], Dict[str, Any]]:
+    cfg = self.config
+    
     # Convert units, sanity-check ranges, and flag suspicious values.
     flags: Dict[str, bool] = {
       "has_any_lab": False,
+      "any_outdated_lab": False,
+      "any_recent_lab": False,
+      "any_missing_timestamp": False,
       "hba1c_out_of_range": False,
       "fpg_out_of_range": False,
       "ogtt_out_of_range": False,
@@ -203,11 +197,31 @@ class LaboratoryAgent:
 
     # Copy to mutable dict for editing
     labs_data = labs.model_dump()
+    timestamps: list[datetime] = []
+
+    def consider_timestamp(meas: Optional[Dict[str, Any]]) -> None:
+      if not meas:
+        return
+      ts = meas.get("timestamp")
+      if ts is None:
+        flags["any_missing_timestamp"] = True
+        return
+      if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+        meas["timestamp"] = ts
+      timestamps.append(ts)
+
+      age_days = (now_dt - ts).days
+      if age_days > cfg.max_lab_age_days:
+        flags["any_outdated_lab"] = True
+      else:
+        flags["any_recent_lab"] = True
 
     # HbA1c
     if labs.hba1c is not None:
       flags["has_any_lab"] = True
       labs_data["hba1c"] = self._normalise_hba1c(labs.hba1c, flags)
+      consider_timestamp(labs_data["hba1c"])
 
     # FPG
     if labs.fpg is not None:
@@ -219,6 +233,7 @@ class LaboratoryAgent:
         min_val=self.config.fpg_min_mmol_l,
         max_val=self.config.fpg_max_mmol_l,
       )
+      consider_timestamp(labs_data["fpg"])
 
     # OGTT
     if labs.ogtt is not None:
@@ -230,6 +245,7 @@ class LaboratoryAgent:
         min_val=self.config.ogtt_min_mmol_l,
         max_val=self.config.ogtt_max_mmol_l,
       )
+      consider_timestamp(labs_data["ogtt"])
 
     # Random glucose (only basic sanity)
     if labs.random_glucose is not None:
@@ -242,24 +258,30 @@ class LaboratoryAgent:
         max_val=self.config.fpg_max_mmol_l,
         strict_range=False,
       )
+      consider_timestamp(labs_data["random_glucose"])
 
     # Self-report flags
     for key in ["hba1c", "fpg", "ogtt", "random_glucose"]:
       meas = labs_data.get(key)
       if meas and meas.get("source") == "self_report":
         flags["any_self_report_lab"] = True
-
+        
     validated = LabBundle(**labs_data)
-    return validated, flags
+    # return validated, flags
+
+    # Meta for orchestration/eval to consume (no extra agent calls needed)
+    most_recent_ts = max(timestamps) if timestamps else None
+    meta: Dict[str, Any] = {
+      "most_recent_lab_timestamp": most_recent_ts.isoformat() if most_recent_ts else None,
+      "most_recent_lab_age_days": (now_dt - most_recent_ts).days if most_recent_ts else None,
+      "max_lab_age_days": cfg.max_lab_age_days,
+    }
+
+    return validated, flags, meta
 
 
   def _normalise_hba1c(  self, meas: LabMeasurement, flags: Dict[str, bool],) -> Dict[str, Any]:
-    """
-    Convert HbA1c to mmol/mol and flag out-of-range values.
-
-    Common clinical formula:
-    mmol/mol ≈ (percent - 2.15) * 10.929
-    """
+    cfg = self.config
     val = meas.value
     unit = meas.unit.lower()
 
@@ -271,26 +293,18 @@ class LaboratoryAgent:
       # Unknown unit, just leave it and hope for the best
       mmol_mol = val
 
-    if (
-      mmol_mol < self.config.hba1c_min_mmol_mol
-      or mmol_mol > self.config.hba1c_max_mmol_mol
-    ):
+    if mmol_mol < cfg.hba1c_min_mmol_mol or mmol_mol > cfg.hba1c_max_mmol_mol:
       flags["hba1c_out_of_range"] = True
 
     return {
-      "value": mmol_mol,
+      "value": float(mmol_mol),
       "unit": "mmol/mol",
       "timestamp": meas.timestamp,
       "source": meas.source,
     }
 
 
-  def _normalise_glucose(self, meas: LabMeasurement, flags: Dict[str, bool], kind: str, min_val: float, max_val: float, strict_range: bool = True,) -> Dict[str, Any]:
-    """
-    Normalise glucose measurements to mmol/L.
-    Handles typical mg/dL → mmol/L conversion if needed.
-    """
-
+  def _normalise_glucose(self, meas: LabMeasurement, flags: Dict[str, bool], *, kind: str, min_val: float, max_val: float, strict_range: bool = True,) -> Dict[str, Any]:
     val = meas.value
     unit = meas.unit.lower()
 
@@ -302,36 +316,31 @@ class LaboratoryAgent:
     else:
       mmol_l = val  # unknown unit, unconverted
 
-    if strict_range:
-      if mmol_l < min_val or mmol_l > max_val:
-        if kind == "fpg":
-          flags["fpg_out_of_range"] = True
-        elif kind == "ogtt":
-          flags["ogtt_out_of_range"] = True
+    if strict_range and (mmol_l < min_val or mmol_l > max_val):
+      if kind == "fpg":
+        flags["fpg_out_of_range"] = True
+      elif kind == "ogtt":
+        flags["ogtt_out_of_range"] = True
 
     return {
-      "value": mmol_l,
+      "value": float(mmol_l),
       "unit": "mmol/L",
       "timestamp": meas.timestamp,
       "source": meas.source,
     }
 
 
-  def _interpret_labs(  self, labs: LabBundle, ctx: ClinicalContext,) -> Dict[str, Any]:
-    """
-    Map lab values to semantic categories relative to clinical thresholds.
-    
-    Produces machine-readable tokens for the Diagnostic Agent / Explanation Agent.
-    """
+  def _interpret_labs( self, labs: LabBundle, ctx: ClinicalContext,) -> Dict[str, Any]:
+    cfg = self.config
     tokens: Dict[str, Any] = {}
 
     # HbA1c
     if labs.hba1c is not None:
       v = labs.hba1c.value
       category = "normal"
-      if v >= self.config.hba1c_diabetes_mmol_mol:
+      if v >= cfg.hba1c_diabetes_mmol_mol:
         category = "diabetic_range"
-      elif v >= self.config.hba1c_pre_diabetes_low_mmol_mol:
+      elif v >= cfg.hba1c_pre_diabetes_low_mmol_mol:
         category = "pre_diabetes_range"
 
       tokens["hba1c"] = {
@@ -339,8 +348,8 @@ class LaboratoryAgent:
         "unit": labs.hba1c.unit,
         "category": category,
         "thresholds": {
-          "diabetes": self.config.hba1c_diabetes_mmol_mol,
-          "pre_diabetes_low": self.config.hba1c_pre_diabetes_low_mmol_mol,
+          "diabetes": cfg.hba1c_diabetes_mmol_mol,
+          "pre_diabetes_low": cfg.hba1c_pre_diabetes_low_mmol_mol,
         },
         "timestamp": labs.hba1c.timestamp,
         "unreliable_context": bool(
@@ -352,9 +361,9 @@ class LaboratoryAgent:
     if labs.fpg is not None:
       v = labs.fpg.value
       category = "normal"
-      if v >= self.config.fpg_diabetes_mmol_l:
+      if v >= cfg.fpg_diabetes_mmol_l:
         category = "diabetic_range"
-      elif v >= self.config.fpg_pre_diabetes_low_mmol_l:
+      elif v >= cfg.fpg_pre_diabetes_low_mmol_l:
         category = "pre_diabetes_range"
 
       tokens["fpg"] = {
@@ -362,8 +371,8 @@ class LaboratoryAgent:
         "unit": labs.fpg.unit,
         "category": category,
         "thresholds": {
-          "diabetes": self.config.fpg_diabetes_mmol_l,
-          "pre_diabetes_low": self.config.fpg_pre_diabetes_low_mmol_l,
+          "diabetes": cfg.fpg_diabetes_mmol_l,
+          "pre_diabetes_low": cfg.fpg_pre_diabetes_low_mmol_l,
         },
         "timestamp": labs.fpg.timestamp,
       }
@@ -372,9 +381,9 @@ class LaboratoryAgent:
     if labs.ogtt is not None:
       v = labs.ogtt.value
       category = "normal"
-      if v >= self.config.ogtt_diabetes_mmol_l:
+      if v >= cfg.ogtt_diabetes_mmol_l:
         category = "diabetic_range"
-      elif v >= self.config.ogtt_pre_diabetes_low_mmol_l:
+      elif v >= cfg.ogtt_pre_diabetes_low_mmol_l:
         category = "pre_diabetes_range"
 
       tokens["ogtt"] = {
@@ -382,8 +391,8 @@ class LaboratoryAgent:
         "unit": labs.ogtt.unit,
         "category": category,
         "thresholds": {
-          "diabetes": self.config.ogtt_diabetes_mmol_l,
-          "pre_diabetes_low": self.config.ogtt_pre_diabetes_low_mmol_l,
+          "diabetes": cfg.ogtt_diabetes_mmol_l,
+          "pre_diabetes_low": cfg.ogtt_pre_diabetes_low_mmol_l,
         },
         "timestamp": labs.ogtt.timestamp,
       }
@@ -393,9 +402,9 @@ class LaboratoryAgent:
       v = labs.random_glucose.value
       # You can refine these if you want; this is intentionally soft
       category = "normal"
-      if v >= 11.1:
+      if v >= cfg.random_glucose_very_high:
         category = "very_high"
-      elif v >= 7.8:
+      elif v >= cfg.random_glucose_elevated:
         category = "elevated"
 
       tokens["random_glucose"] = {
@@ -408,19 +417,15 @@ class LaboratoryAgent:
     return tokens
 
 
-  def _decide_test_plan(self, validated_labs: LabBundle, risk: float, context: ClinicalContext, interpretation: Dict[str, Any],) -> TestPlan:
-    """
-    Decide if a new test is needed, which type, and urgency.
-    Logic is intentionally simple & explainable for MSc level.
-    """
-      
-    now = datetime.utcnow()
+  def _decide_test_plan(self, *, validated_labs: LabBundle, risk: float, context: ClinicalContext, interpretation: Dict[str, Any], now_dt: datetime, flags: Dict[str, bool]) -> TestPlan:      
+    # now = datetime.utcnow()
     cfg = self.config
 
     def is_recent(meas: Optional[LabMeasurement]) -> bool:
       if meas is None or meas.timestamp is None:
         return False
-      return now - meas.timestamp <= timedelta(days=cfg.max_lab_age_days)
+      ts = meas.timestamp.replace(tzinfo = timezone.utc) if meas.timestamp.tzinfo is None else meas.timestamp
+      return (now_dt - ts) <= timedelta(days = cfg.max_lab_age_days)
 
     # Check recency of each lab
     hba1c_recent = is_recent(validated_labs.hba1c)
@@ -428,103 +433,92 @@ class LaboratoryAgent:
     ogtt_recent = is_recent(validated_labs.ogtt)
 
     has_any_recent_lab = hba1c_recent or fpg_recent or ogtt_recent
+    
+    # Case A: no labs at all (or no timestamps -> treated as not recent)
+    has_any_lab_values = any([
+      validated_labs.hba1c is not None,
+      validated_labs.fpg is not None,
+      validated_labs.ogtt is not None,
+    ])
 
-    # 1) If no labs and high risk → order HbA1c (or FPG/OGTT if context unreliable)
-    if not has_any_recent_lab and validated_labs.hba1c is None \
-      and validated_labs.fpg is None and validated_labs.ogtt is None:
-
+    if not has_any_recent_lab and not has_any_lab_values:
       if risk >= cfg.high_risk_threshold:
         test_type = self._preferred_test_type(context)
-        rationale = (
-          f"No recent labs and high risk ({risk:.2f}) → "
-          f"order {test_type}"
-        )
         return TestPlan(
           needs_test=True,
           test_type=test_type,
           urgency="priority",
           need_retest=False,
-          rationale=rationale,
+          rationale=f"No recent labs and high risk ({risk:.2f}) → order {test_type}.",
         )
 
       if risk >= cfg.moderate_risk_threshold:
         test_type = self._preferred_test_type(context)
-        rationale = (
-          f"No recent labs and moderate risk ({risk:.2f}) ->" f"order {test_type}"
-        )
         return TestPlan(
-          needs_test = True,
-          test_type = test_type,
-          urgency = "routine",
-          need_retest = False,
-          rationale = rationale,
-        )
-          
-      # Low risk, no labs → can defer
-      return TestPlan(
-          needs_test=False,
-          test_type="none",
-          urgency="none",
+          needs_test=True,
+          test_type=test_type,
+          urgency="routine",
           need_retest=False,
-          rationale="Low risk and no labs; monitoring without immediate testing.",
+          rationale=f"No recent labs and moderate risk ({risk:.2f}) → order {test_type}.",
+        )
+
+      return TestPlan(
+        needs_test=False,
+        test_type="none",
+        urgency="none",
+        need_retest=False,
+        rationale="Low risk and no labs; monitor without immediate testing.",
       )
 
-    # 2) Labs exist but outdated → retest if risk not trivial
-    if not has_any_recent_lab:
+
+    # Case B: labs exist but outdated
+    if not has_any_recent_lab and has_any_lab_values:
       if risk >= cfg.moderate_risk_threshold:
-        test_type = self._preferred_test_type(context)
-        rationale = (
-          f"Existing labs are outdated and risk={risk:.2f} → retest {test_type}"
-        )
+        # retest same preferred type (repeat order is captured by repeat_test)
+        pref = self._preferred_test_type(context)
         return TestPlan(
           needs_test=True,
           test_type="repeat_test",
           urgency="routine",
           need_retest=True,
-          rationale=rationale,
+          rationale=f"Existing labs outdated and risk={risk:.2f} → retest ({pref}).",
         )
-      else:
-        return TestPlan(
-          needs_test=False,
-          test_type="none",
-          urgency="none",
-          need_retest=False,
-          rationale="Only outdated labs available but risk is low; monitor.",
-        )
-      
-    # 3) Recent lab(s) exist → no new test by default
-    #    But handle borderline / conflicting ranges if you want to get fancy
-    #    For now, we keep it simple and leave uncertainty to Diagnostic Agent.
+
+      return TestPlan(
+        needs_test=False,
+        test_type="none",
+        urgency="none",
+        need_retest=False,
+        rationale="Only outdated labs available but risk is low; monitor.",
+      )
+    
+
+    # Case C: recent labs exist → no new test by default
     rationale_parts = ["Recent lab(s) available; no new test required."]
 
     if "hba1c" in interpretation:
-      cat = interpretation["hba1c"]["category"]
-      rationale_parts.append(f"HbA1c is in {cat.replace('_', ' ')}.")
-    if "fpg" in interpretation:
-      cat = interpretation["fpg"]["category"]
-      rationale_parts.append(f"FPG is in {cat.replace('_', ' ')}.")
-    if "ogtt" in interpretation:
-      cat = interpretation["ogtt"]["category"]
-      rationale_parts.append(f"OGTT is in {cat.replace('_', ' ')}.")
+      rationale_parts.append(f"HbA1c is {interpretation['hba1c']['category'].replace('_', ' ')}.")
+      if interpretation["hba1c"].get("unreliable_context") and flags.get("lab_potentially_unreliable_context"):
+        rationale_parts.append("HbA1c may be unreliable in current context; consider FPG/OGTT if needed.")
 
-    rationale = " ".join(rationale_parts)
+    if "fpg" in interpretation:
+      rationale_parts.append(f"FPG is {interpretation['fpg']['category'].replace('_', ' ')}.")
+
+    if "ogtt" in interpretation:
+      rationale_parts.append(f"OGTT is {interpretation['ogtt']['category'].replace('_', ' ')}.")
 
     return TestPlan(
       needs_test=False,
       test_type="none",
       urgency="none",
       need_retest=False,
-      rationale=rationale,
+      rationale=" ".join(rationale_parts),
     )
 
 
+
   def _preferred_test_type(self, context: ClinicalContext) -> TestType:
-      """
-      Decide preferred test based on context.
-  
-      HbA1c is default, but if it is unreliable, prefer FPG/OGTT.
-      """
-      if context.pregnancy or context.anaemia or context.ckd or context.haemoglobinopathy:
-        # HbA1c unreliable → prefer OGTT or FPG
-        return "OGTT"
-      return "HbA1c"               
+    if context.pregnancy or context.anaemia or context.ckd or context.haemoglobinopathy:
+      # HbA1c unreliable → prefer OGTT or FPG
+      return "OGTT"
+    return "HbA1c"               

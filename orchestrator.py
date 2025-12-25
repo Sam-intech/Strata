@@ -258,6 +258,9 @@ class StrataOrchestrator:
       context = {}  
     )
 
+    print("\n[DEBUG] LabAgentOutput:")
+    print(lab_out.model_dump())
+
     return {
       "lab_output": lab_out
     }
