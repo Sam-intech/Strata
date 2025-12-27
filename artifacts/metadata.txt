@@ -1,0 +1,9 @@
+Features: ['gender', 'age', 'bmi', 'glucose', 'hba1c', 'blood_pressure', 'hypertension', 'heart_disease', 'smoking_history', 'insulin']
+Target: diabetes_present
+samples total: 100768
+Train size: 80614
+Test size: 20154
+diabetes_path: /Users/samuelsonowo/Desktop/Dev/Strata/data/raw/concluded/diabetes_dset1.csv
+pima_path: /Users/samuelsonowo/Desktop/Dev/Strata/data/raw/concluded/pima_indians.csv
+mohammed_path: /Users/samuelsonowo/Desktop/Dev/Strata/data/raw/concluded/mohammed.csv
+readmission_path: /Users/samuelsonowo/Desktop/Dev/Strata/data/raw/concluded/diabetes_dset2.csv

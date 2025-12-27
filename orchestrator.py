@@ -219,7 +219,7 @@ class StrataOrchestrator:
   def node_data_agent(self, state: OrchestrationState) -> Dict[str, Any]:
     patient_raw = state["patient_raw"]
 
-    data_out = self.data_agent.ingest_single(patient_raw)
+    data_out = self.data_agent.process_single(patient_raw)
 
     cleaned_dset = data_out.cleaned
     if len(cleaned_dset) != 1:
@@ -392,8 +392,9 @@ class StrataOrchestrator:
   
 
 # ----------------------
-def build_orchestrator(*, model_path: Path, enable_explanations: bool = True, use_checkpointer: bool = False, sqlite_path: Optional[str] = None, logger: Optional[OrchestrationLogger] = None) -> "StrataOrchestrator":
-  data_agent = DataHandlingAgent()
+def build_orchestrator(*, model_path: Path, preprocessor_path: Path, enable_explanations: bool = True, use_checkpointer: bool = False, sqlite_path: Optional[str] = None, logger: Optional[OrchestrationLogger] = None) -> "StrataOrchestrator":
+  preprocessor = joblib.load(preprocessor_path)
+  data_agent = DataHandlingAgent(preprocessor = preprocessor)
 
   model = joblib.load(model_path)
   clinical_agent = ClinicalAssessmentAgent(model = model)
