@@ -522,6 +522,11 @@ class DataHandlingAgent:
     if "bmi" in dset.columns:
       flags["bmi_out_of_range_soft"] = dset["bmi"].notna() & ~dset["bmi"].between(10, 80)
 
+    # ---- force categorical columns to strings (prevents OneHotEncoder mixed type crash) ----
+    for col in ["gender", "hypertension", "heart_disease", "smoking_history"]:
+      if col in dset.columns:
+        dset[col] = dset[col].astype("string").fillna("unknown")
+
 
     return dset, flags
 

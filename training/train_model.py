@@ -1,6 +1,6 @@
 import argparse
 from pathlib import Path
-from typing import Optional
+# from typing import Optional
 
 import joblib
 import pandas as pd
@@ -8,19 +8,19 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, roc_auc_score
 
-from agents.data_agent import (FEATURES, TARGET, load_diabetes_prediction, load_pima, load_mohammed, build_preprocessor)
+from agents.data_agent import (FEATURES, TARGET, load_diabetes_prediction, load_pima, load_mohammed, load_diabetes_readmission, build_preprocessor)
 from agents.clinical_agent import ClinicalAssessmentAgent
 # ===========================================================================================================================
 
 
 
-def load_datasets(diabetes_path: Path,
-                  pima_path: Path,
-                  mohammed_path: Optional[Path] = None) -> pd.DataFrame:
-  """
-  Load and unify all datasets into a single DataFrame.
-  All outputs must have the same columns as defined in FEATURES + [target]. 
-  """
+def _must_exist(p: Path, name: str) -> Path:
+  if not p.exists():
+    raise FileNotFoundError(f"{name} not found: {p.resolve()}")
+  return p
+
+
+def load_datasets(diabetes_path: Path, pima_path: Path, mohammed_path: Path, readmission_path: Path) -> pd.DataFrame:
   # dsets = []
   dsets: list[pd.DataFrame] = []
 
@@ -31,9 +31,11 @@ def load_datasets(diabetes_path: Path,
   dset_pima = load_pima(pima_path)
   dsets.append(dset_pima)
 
-  if mohammed_path is not None:
-    dset_mohammed = load_mohammed(mohammed_path)
-    dsets.append(dset_mohammed)
+  dset_mohammed = load_mohammed(_must_exist(mohammed_path, "mohammed_path"))
+  dsets.append(dset_mohammed)
+
+  dset_readmission = load_diabetes_readmission(_must_exist(readmission_path, "readmission_path"))
+  dsets.append(dset_readmission)
 
   all_dset = pd.concat(dsets, ignore_index=True)
 
@@ -44,26 +46,29 @@ def load_datasets(diabetes_path: Path,
 
 
 
-def train(diabetes_path: str,
-          pima_path: str,
-          mohammed_path: str | None,
-          output_dir: str,
-          test_size: float = 0.2,
-          random_state: int = 42) -> None:
+def train(diabetes_path: str, pima_path: str, mohammed_path: str, readmission_path: str, output_dir: str, test_size: float = 0.2, random_state: int = 42) -> None:
   output_dir_path = Path(output_dir)
   output_dir_path.mkdir(parents=True, exist_ok=True)
 
   # Load datasets
   print("[*] Loading datasets...")
   dsets = load_datasets(
-      diabetes_path = Path(diabetes_path),
-      pima_path = Path(pima_path),
-      mohammed_path = Path(mohammed_path) if mohammed_path is not None else None,
+    diabetes_path = Path(diabetes_path),
+    pima_path = Path(pima_path),
+    mohammed_path = Path(mohammed_path),
+    readmission_path = Path(readmission_path),
   )
 
   print(f"[*] Combined dataset shape: {dsets.shape}")
   features = dsets[FEATURES]
   target = dsets[TARGET].astype(int)
+
+  # Force categorical columns to strings (prevents OneHotEncoder mixed type crash)
+  cat_cols = ["gender", "hypertension", "heart_disease", "smoking_history"]
+  for c in cat_cols:
+    if c in features.columns:
+      features[c] = features[c].astype("string").fillna("unknown")
+
 
 
   # Split data
@@ -146,6 +151,10 @@ def train(diabetes_path: str,
     f.write(f"samples total: {len(dsets)}\n")
     f.write(f"Train size: {len(features_train)}\n")
     f.write(f"Test size: {len(features_test)}\n")
+    f.write(f"diabetes_path: {Path(diabetes_path).resolve()}\n")
+    f.write(f"pima_path: {Path(pima_path).resolve()}\n")
+    f.write(f"mohammed_path: {Path(mohammed_path).resolve()}\n")
+    f.write(f"readmission_path: {Path(readmission_path).resolve()}\n")
 
 
   print("[*] Training complete.")
@@ -153,36 +162,13 @@ def train(diabetes_path: str,
 
 
 def parse_args():
-  parser = argparse.ArgumentParser(description="Train T2D risk/prediction model.")
-  parser.add_argument(
-    "--diabetes-path", 
-    # type = str, 
-    required = True, 
-    # help = "Path to the diabetes prediction dataset CSV file."
-  )
-  parser.add_argument(
-    "--pima-path", 
-    # type = str, 
-    required = True, 
-    # help = "Path to the Pima Indians Diabetes dataset CSV file."
-  )
-  parser.add_argument(
-    "--mohammed-path", 
-    # type=str, 
-    default = None,
-    # help = "Optional path to the Mohammed et al. dataset CSV file."
-  )
-  parser.add_argument(
-    "--output-dir", 
-    default = "artifacts",
-    # help = "Directory to save the trained model and preprocessor."
-  )
-  parser.add_argument(
-    "--test-size", 
-    type = float, 
-    default = 0.2,
-    # help = "Proportion of the dataset to include in the test split."
-  )
+  parser = argparse.ArgumentParser(description="Train T2D risk/prediction model on 4 datasets.")
+  parser.add_argument("--diabetes-path", required=True)
+  parser.add_argument("--pima-path", required=True)
+  parser.add_argument("--mohammed-path", required=True)
+  parser.add_argument("--readmission-path", required=True)
+  parser.add_argument("--output-dir", default="artifacts")
+  parser.add_argument("--test-size", type=float, default=0.2)
   return parser.parse_args()
 
 
@@ -194,6 +180,7 @@ if __name__ == "__main__":
     diabetes_path = args.diabetes_path,
     pima_path = args.pima_path,
     mohammed_path = args.mohammed_path,
+    readmission_path = args.readmission_path,
     output_dir = args.output_dir,
     test_size = args.test_size,
   ) 
