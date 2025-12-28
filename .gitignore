@@ -1,0 +1,31 @@
+# ========================
+# secret environment
+
+
+.env
+.env.*
+!.env.example
+
+#-------------------------
+# API key/secret files
+api
+api.txt
+api.json
+secrets
+secrets.*
+*.key
+*.pem
+
+
+#--------------------
+# Python cache/venv
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+
+#------
+# Logs
+*.logs
+
