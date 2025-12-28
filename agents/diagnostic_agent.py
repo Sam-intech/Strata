@@ -1,46 +1,62 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, Literal
+from typing import Optional, Dict, Any, Literal, TypedDict, NotRequired 
 import math
 # ===============================================================================================================
 
 
 DiagnosisLabel = Literal["normal", "high_risk", "T2D", "uncertain"]
 
+DiagnosticBasis = Literal["HbA1c", "FPG", "OGTT_2h", "risk_only", "none"]
 
+DiagnosticNextStep = Literal[
+  "routine_monitoring",
+  "monitor_and_reassess_risk",
+  "order_diagnostic_labs",
+  "lifestyle_intervention_and_consider_labs",
+  "lifestyle_intervention_and_repeat_testing",
+  "repeat_HbA1c_or_use_FPG_OGTT",
+  "repeat_FPG_or_perform_OGTT",
+  "repeat_OGTT_or_use_alternative_test",
+  "confirm_diagnosis_and_initiate_management",
+]
+
+
+class OrchestratorState(TypedDict, total=False):
+  # from ClinicalAssessmentAgent
+  clinical_output: NotRequired[Dict[str, Any]]  # expects at least: {"risk_T2D_now": float, ...}
+
+  # from LaboratoryAgent
+  lab_output: NotRequired[Dict[str, Any]]  # expects labs + flags (see adapter)
+
+  # optional context (from data handler / UI / patient profile)
+  context: NotRequired[Dict[str, Any]]  # pregnancy/anaemia/haemoglobinopathy/ckd etc.
+
+  # where this agent writes
+  diagnostic_output: NotRequired[Dict[str, Any]]
+
+  # optional: internal debug / trace
+  trace: NotRequired[list]
+
+
+
+# --------------------------------
+# config + Evidence models
 @dataclass
 class DiagnosticConfig:
-  """
-  Config for DiagnosticAgent:
-  - lab thresholds
-  - borderline margins
-  - confidence calibration
-  """
-  # HbA1c thresholds (mmol/mol)
   hba1c_diabetes: float = 48.0
-  hba1c_high_risk_low: float = 42.0  # "pre-diabetes" / high-risk band
-
-  # FPG thresholds (mmol/L)
+  hba1c_high_risk_low: float = 42.0  
   fpg_diabetes: float = 7.0
   fpg_high_risk_low: float = 6.1
-
-  # OGTT 2h thresholds (mmol/L)
   ogtt_diabetes: float = 11.1
   ogtt_high_risk_low: float = 7.8
-
-  # Borderline margin around thresholds (for "uncertain")
   borderline_margin: float = 0.3
-  
-  # How much to weight pre-test (clinical) risk in final confidence  pretest_weight: float = 0.3  # 0–1
-  pretest_weight: float = 0.3  # 0–1
+  pretest_weight: float = 0.3  
 
 
 @dataclass
 class LabEvidence:
-  """
-  Flattened, validated labs from LaboratoryAgent.
-  Assume units already standardised to mmol/mol + mmol/L.
-  """
   hba1c_mmol_mol: Optional[float] = None
   fpg_mmol_l: Optional[float] = None
   ogtt_2h_mmol_l: Optional[float] = None
@@ -56,10 +72,6 @@ class LabEvidence:
 
 @dataclass
 class DiagnosticContext:
-  """
-  Context flags from DataHandlingAgent, etc.
-  Used to handle edge cases where HbA1c is unreliable.
-  """
   pregnancy: bool = False
   anaemia: bool = False
   haemoglobinopathy: bool = False
@@ -70,10 +82,6 @@ class DiagnosticContext:
 
 @dataclass
 class ClinicalAssessmentSnapshot:
-  """
-  Minimal subset of ClinicalAssessmentAgent output needed here.
-  You can swap this for the real ClinicalAssessmentOutput class.
-  """
   risk_T2D_now: float
   triage_label: Optional[str] = None
   raw_proba_vector: Optional[Any] = None
@@ -84,26 +92,44 @@ class ClinicalAssessmentSnapshot:
 class DiagnosticResult:
   label: DiagnosisLabel
   confidence: float
-  next_step: str
-  basis: str
+  next_step: DiagnosticNextStep
+  basis: DiagnosticBasis
   reasoning_tokens: Dict[str, Any]
 
 
+
+# ---------------------------
 class DiagnosticAgent:
-  """
-  Hybrid rule-based diagnostic engine for T2D.
-
-  Inputs:
-    - LabEvidence (current + key historical)
-    - ClinicalAssessmentSnapshot (pre-test probability)
-    - DiagnosticContext (conditions that affect lab interpretation)
-
-  Output:
-    - DiagnosticResult with label, confidence, next_step, and reasoning tokens.
-  """
-
-  def __init__(self, config: Optional[DiagnosticConfig] = None):
+  def __init__(self, config: Optional[DiagnosticConfig] = None, enable_trace: bool = False):
     self.config = config or DiagnosticConfig()
+    self.enable_trace = enable_trace
+
+
+  # Orchestrator-facing entry
+  def __call__(self, state: OrchestratorState) -> OrchestratorState:
+    clinical = self._clinical_from_state(state.get("clinical_output"))
+    labs = self._labs_from_state(state.get("lab_output"))
+    ctx = self._context_from_state(state.get("context"))
+    
+    result = self.diagnose(labs=labs, clinical=clinical, ctx=ctx)
+    state["diagnostic_output"] = {
+      "label": result.label,
+      "confidence": result.confidence,
+      "basis": result.basis,
+      "next_step": result.next_step,
+      "reasoning_tokens": result.reasoning_tokens,
+    }
+
+
+    if self.enable_trace:
+      state.setdefault("trace", []).append(
+        {
+          "agent": "DiagnosticAgent", 
+          "output": state["diagnostic_output"]
+        }
+      )
+
+    return state
 
 
   # Public API -----
@@ -121,24 +147,14 @@ class DiagnosticAgent:
       return self._diagnose_from_hba1c(labs, clinical, ctx)
     if primary_basis == "FPG":
       return self._diagnose_from_fpg(labs, clinical, ctx)
-    if primary_basis == "OGTT":
+    if primary_basis == "OGTT_2h":
       return self._diagnose_from_ogtt(labs, clinical, ctx)
 
-    # Shouldn't happen, but humans also say that before production
     return self._diagnose_from_risk_only(clinical, labs, ctx)
 
 
   # Basis selection -----
-  def _select_primary_basis(self, labs: LabEvidence, ctx: DiagnosticContext) -> Optional[str]:
-    """
-    Choose which lab to anchor the decision on, respecting context.
-
-    Simplified logic:
-      - Avoid HbA1c if haemoglobin issues / pregnancy.
-      - Prefer HbA1c if available & reliable.
-      - Else prefer FPG, then OGTT.
-    """
-
+  def _select_primary_basis(self, labs: LabEvidence, ctx: DiagnosticContext) -> Optional[Literal["HbA1c", "FPG", "OGTT_2h"]]:
     hba1c_reliable = (
       labs.hba1c_mmol_mol is not None
       and not ctx.pregnancy
@@ -152,7 +168,7 @@ class DiagnosticAgent:
       return "FPG"
 
     if labs.ogtt_2h_mmol_l is not None:
-      return "OGTT"
+      return "OGTT_2h"
 
     # No structured diagnostic labs available
     return None
@@ -166,17 +182,17 @@ class DiagnosticAgent:
     if val is None:
       return self._diagnose_from_risk_only(clinical, labs, ctx)
 
-    reasoning = {
-      "basis": "HbA1c",
-      "value": val,
-      "diabetes_threshold": cfg.hba1c_diabetes,
-      "high_risk_low": cfg.hba1c_high_risk_low,
-    }
+    # reasoning = {
+    #   "basis": "HbA1c",
+    #   "value": val,
+    #   "diabetes_threshold": cfg.hba1c_diabetes,
+    #   "high_risk_low": cfg.hba1c_high_risk_low,
+    # }
 
     # Borderline band around the diagnostic threshold
     if self._is_borderline(val, cfg.hba1c_diabetes, cfg.borderline_margin):
-      label = "uncertain"
-      next_step = "repeat_HbA1c_or_use_FPG_OGTT"
+      label: DiagnosisLabel = "uncertain"
+      next_step: DiagnosticNextStep = "repeat_HbA1c_or_use_FPG_OGTT"
     elif val >= cfg.hba1c_diabetes:
       label = "T2D"
       next_step = "confirm_diagnosis_and_initiate_management"
@@ -187,54 +203,48 @@ class DiagnosticAgent:
       label = "normal"
       next_step = "routine_monitoring"
 
-    conf = self._calibrate_confidence_from_distance(
-      value=val,
-      threshold=cfg.hba1c_diabetes,
-      pretest_risk=clinical.risk_T2D_now,
-    )
-
-    reasoning.update(
-      {
-        "chosen_label": label,
-        "pretest_risk": clinical.risk_T2D_now,
-        "borderline_margin": cfg.borderline_margin,
-        "lab_flags": {
-          "is_self_report_only": labs.is_self_report_only,
-          "is_outdated": labs.is_outdated,
-          "has_quality_issues": labs.has_quality_issues,
-        },
-      }
-    )
-
+    # conf = self._calibrate_confidence_from_distance(
+    #   value=val,
+    #   threshold=cfg.hba1c_diabetes,
+    #   pretest_risk=clinical.risk_T2D_now,
+    # )
+    conf = self._calibrate_confidence_from_distance(val, cfg.hba1c_diabetes, clinical.risk_T2D_now)
     conf = self._penalise_for_lab_quality(conf, labs)
 
+    reasoning = self._reasoning_pack(
+      basis = "HbA1c",
+      value = val,
+      thresholds = {
+        "diabetes": cfg.hba1c_diabetes, 
+        "high_risk_low": cfg.hba1c_high_risk_low
+        },
+      label = label,
+      clinical = clinical,
+      labs = labs,
+      ctx = ctx,
+    )
+
+    # conf = self._penalise_for_lab_quality(conf, labs)
+
     return DiagnosticResult(
-      label=label,
-      confidence=conf,
-      next_step=next_step,
-      basis="HbA1c",
-      reasoning_tokens=reasoning,
+      label = label,
+      confidence = conf,
+      next_step = next_step,
+      basis = "HbA1c",
+      reasoning_tokens = reasoning,
     )
 
 
   # FPG-driven diagnosis -----
-  def _diagnose_from_fpg(self, labs: LabEvidence, clinical: ClinicalAssessmentSnapshot, ctx: DiagnosticContext,) -> DiagnosticResult:
+  def _diagnose_from_fpg(self, labs: LabEvidence, clinical: ClinicalAssessmentSnapshot, ctx: DiagnosticContext) -> DiagnosticResult:
     val = labs.fpg_mmol_l
     cfg = self.config
-
     if val is None:
       return self._diagnose_from_risk_only(clinical, labs, ctx)
 
-    reasoning = {
-      "basis": "FPG",
-      "value": val,
-      "diabetes_threshold": cfg.fpg_diabetes,
-      "high_risk_low": cfg.fpg_high_risk_low,
-    }
-
     if self._is_borderline(val, cfg.fpg_diabetes, cfg.borderline_margin):
-      label = "uncertain"
-      next_step = "repeat_FPG_or_perform_OGTT"
+      label: DiagnosisLabel = "uncertain"
+      next_step: DiagnosticNextStep = "repeat_FPG_or_perform_OGTT"
     elif val >= cfg.fpg_diabetes:
       label = "T2D"
       next_step = "confirm_diagnosis_and_initiate_management"
@@ -245,53 +255,35 @@ class DiagnosticAgent:
       label = "normal"
       next_step = "routine_monitoring"
 
-    conf = self._calibrate_confidence_from_distance(
-      value=val,
-      threshold=cfg.fpg_diabetes,
-      pretest_risk=clinical.risk_T2D_now,
-    )
-    reasoning.update(
-      {
-        "chosen_label": label,
-        "pretest_risk": clinical.risk_T2D_now,
-        "borderline_margin": cfg.borderline_margin,
-        "lab_flags": {
-          "is_self_report_only": labs.is_self_report_only,
-          "is_outdated": labs.is_outdated,
-          "has_quality_issues": labs.has_quality_issues,
-        },
-      }
-    )
-
+    conf = self._calibrate_confidence_from_distance(val, cfg.fpg_diabetes, clinical.risk_T2D_now)
     conf = self._penalise_for_lab_quality(conf, labs)
 
-    return DiagnosticResult(
-      label=label,
-      confidence=conf,
-      next_step=next_step,
-      basis="FPG",
-      reasoning_tokens=reasoning,
+    reasoning = self._reasoning_pack(
+      basis = "FPG",
+      value = val,
+      thresholds = {
+        "diabetes": cfg.fpg_diabetes, 
+        "high_risk_low": cfg.fpg_high_risk_low
+        },
+      label = label,
+      clinical = clinical,
+      labs = labs,
+      ctx = ctx,
     )
+
+    return DiagnosticResult(label = label, confidence = conf, next_step = next_step, basis = "FPG", reasoning_tokens=reasoning)
 
 
   # OGTT-driven diagnosis -----
-  def _diagnose_from_ogtt(self, labs: LabEvidence, clinical: ClinicalAssessmentSnapshot, ctx: DiagnosticContext,) -> DiagnosticResult:
+  def _diagnose_from_ogtt(self, labs: LabEvidence, clinical: ClinicalAssessmentSnapshot, ctx: DiagnosticContext) -> DiagnosticResult:
     val = labs.ogtt_2h_mmol_l
     cfg = self.config
-
     if val is None:
       return self._diagnose_from_risk_only(clinical, labs, ctx)
 
-    reasoning = {
-      "basis": "OGTT_2h",
-      "value": val,
-      "diabetes_threshold": cfg.ogtt_diabetes,
-      "high_risk_low": cfg.ogtt_high_risk_low,
-    }
-
     if self._is_borderline(val, cfg.ogtt_diabetes, cfg.borderline_margin):
-      label = "uncertain"
-      next_step = "repeat_OGTT_or_use_alternative_test"
+      label: DiagnosisLabel = "uncertain"
+      next_step: DiagnosticNextStep = "repeat_OGTT_or_use_alternative_test"
     elif val >= cfg.ogtt_diabetes:
       label = "T2D"
       next_step = "confirm_diagnosis_and_initiate_management"
@@ -302,46 +294,39 @@ class DiagnosticAgent:
       label = "normal"
       next_step = "routine_monitoring"
 
-    conf = self._calibrate_confidence_from_distance(
-      value=val,
-      threshold=cfg.ogtt_diabetes,
-      pretest_risk=clinical.risk_T2D_now,
-    )
-    reasoning.update(
-      {
-        "chosen_label": label,
-        "pretest_risk": clinical.risk_T2D_now,
-        "borderline_margin": cfg.borderline_margin,
-        "lab_flags": {
-          "is_self_report_only": labs.is_self_report_only,
-          "is_outdated": labs.is_outdated,
-          "has_quality_issues": labs.has_quality_issues,
-        },
-      }
-    )
-
+    conf = self._calibrate_confidence_from_distance(val, cfg.ogtt_diabetes, clinical.risk_T2D_now)
     conf = self._penalise_for_lab_quality(conf, labs)
 
-    return DiagnosticResult(
-      label=label,
-      confidence=conf,
-      next_step=next_step,
-      basis="OGTT",
-      reasoning_tokens=reasoning,
+    reasoning = self._reasoning_pack(
+      basis = "OGTT_2h",
+      value = val,
+      thresholds = {
+        "diabetes": cfg.ogtt_diabetes, 
+        "high_risk_low": cfg.ogtt_high_risk_low
+        },
+      label = label,
+      clinical = clinical,
+      labs = labs,
+      ctx = ctx,
     )
+
+    return DiagnosticResult(
+      label = label, 
+      confidence = conf, 
+      next_step = next_step, 
+      basis = "OGTT_2h", 
+      reasoning_tokens = reasoning
+      )
+
 
 
   # Risk-only fallback -----
-  def _diagnose_from_risk_only(self, clinical: ClinicalAssessmentSnapshot, labs: LabEvidence, ctx: DiagnosticContext,) -> DiagnosticResult:
-    """
-    Used when there are no usable diagnostic labs.
-    This is explicitly "early risk" territory.
-    """
+  def _diagnose_from_risk_only(self, clinical: ClinicalAssessmentSnapshot, labs: LabEvidence, ctx: DiagnosticContext) -> DiagnosticResult:
     p = clinical.risk_T2D_now
 
     if p >= 0.8:
-      label = "high_risk"
-      next_step = "order_diagnostic_labs"
+      label: DiagnosisLabel = "high_risk"
+      next_step: DiagnosticNextStep = "order_diagnostic_labs"
     elif p >= 0.4:
       label = "high_risk"
       next_step = "lifestyle_intervention_and_consider_labs"
@@ -352,16 +337,18 @@ class DiagnosticAgent:
       label = "normal"
       next_step = "routine_monitoring"
 
-    conf = 0.5 + 0.4 * p  # very rough, capped <= 0.9
-    conf = min(conf, 0.9)
+    conf = min(0.9, 0.5 + 0.4 * p)
 
     reasoning = {
       "basis": "risk_only",
+      "value": None,
+      "thresholds": {},
+      "chosen_label": label,
       "pretest_risk": p,
-      "lab_available": {
-        "hba1c": labs.hba1c_mmol_mol is not None,
-        "fpg": labs.fpg_mmol_l is not None,
-        "ogtt_2h": labs.ogtt_2h_mmol_l is not None,
+      "lab_flags": {
+        "is_self_report_only": labs.is_self_report_only,
+        "is_outdated": labs.is_outdated,
+        "has_quality_issues": labs.has_quality_issues,
       },
       "context_flags": {
         "pregnancy": ctx.pregnancy,
@@ -372,29 +359,76 @@ class DiagnosticAgent:
     }
 
     return DiagnosticResult(
-      label=label,
-      confidence=conf,
-      next_step=next_step,
-      basis="risk_only",
-      reasoning_tokens=reasoning,
+      label = label, 
+      confidence = conf, 
+      next_step = next_step, 
+      basis = "risk_only", 
+      reasoning_tokens = reasoning
+      )
+
+
+
+  # -----------------------------------------------------
+  # Adapters: read whatever your upstream agents wrote into state
+  @staticmethod
+  def _clinical_from_state(payload: Optional[Dict[str, Any]]) -> ClinicalAssessmentSnapshot:
+    if not payload:
+      # default safe fallback (forces "normal" risk-only path)
+      return ClinicalAssessmentSnapshot(risk_T2D_now=0.0)
+      
+    risk = float(payload.get("risk_T2D_now", payload.get("risk", 0.0)))
+    return ClinicalAssessmentSnapshot(
+      risk_T2D_now = risk,
+      triage_label = payload.get("triage_label"),
+      raw_proba_vector = payload.get("raw_proba_vector"),
+      meta = payload.get("meta"),
+    )
+
+  @staticmethod
+  def _labs_from_state(payload: Optional[Dict[str, Any]]) -> LabEvidence:
+    if not payload:
+      return LabEvidence()
+
+    # Common patterns you might be using in LabAgent output:
+    # - direct keys: hba1c_mmol_mol / fpg_mmol_l / ogtt_2h_mmol_l
+    # - nested "labs": {"hba1c_mmol_mol": ...}
+    labs_dict = payload.get("labs", payload)
+
+    return LabEvidence(
+      hba1c_mmol_mol = _safe_float(labs_dict.get("hba1c_mmol_mol")),
+      fpg_mmol_l = _safe_float(labs_dict.get("fpg_mmol_l")),
+      ogtt_2h_mmol_l = _safe_float(labs_dict.get("ogtt_2h_mmol_l")),
+      random_glucose_mmol_l = _safe_float(labs_dict.get("random_glucose_mmol_l")),
+      is_self_report_only = bool(payload.get("is_self_report_only", False)),
+      is_outdated = bool(payload.get("is_outdated", False)),
+      has_quality_issues = bool(payload.get("has_quality_issues", False)),
+      raw_meta=payload.get("meta"),
+    )
+
+  @staticmethod
+  def _context_from_state(payload: Optional[Dict[str, Any]]) -> DiagnosticContext:
+    if not payload:
+      return DiagnosticContext()
+
+    return DiagnosticContext(
+      pregnancy=bool(payload.get("pregnancy", False)),
+      anaemia=bool(payload.get("anaemia", False)),
+      haemoglobinopathy=bool(payload.get("haemoglobinopathy", False)),
+      ckd=bool(payload.get("ckd", False)),
+      raw_meta=payload,
     )
 
 
-  # Helpers -----
+
+  # -----------------
+  # Helpers
   @staticmethod
   def _is_borderline(value: float, threshold: float, margin: float) -> bool:
     return abs(value - threshold) <= margin
 
   def _calibrate_confidence_from_distance(self, value: float, threshold: float, pretest_risk: float,) -> float:
-    """
-    Combine distance from threshold + pretest risk into a [0,1] confidence.
-    Simple, explicit and easy to explain in the write-up.
-    """
     dist = abs(value - threshold)
-    # squash distance into [0,1] using a simple logistic-like curve
     lab_component = 1.0 / (1.0 + math.exp(-dist))
-
-    # normalise lab_component to ~[0.5, 0.95]
     lab_conf = 0.5 + 0.45 * (lab_component - 0.5) / 0.5
     lab_conf = max(0.5, min(lab_conf, 0.95))
 
@@ -413,3 +447,33 @@ class DiagnosticAgent:
       penalty += 0.15
         
     return max(0.0, confidence - penalty)
+  
+  @staticmethod
+  def _reasoning_pack(basis: DiagnosticBasis, value: float, thresholds: Dict[str, float], label: DiagnosisLabel, clinical: ClinicalAssessmentSnapshot, labs: LabEvidence, ctx: DiagnosticContext,) -> Dict[str, Any]:
+    return {
+      "basis": basis,
+      "value": value,
+      "thresholds": thresholds,
+      "chosen_label": label,
+      "pretest_risk": clinical.risk_T2D_now,
+      "lab_flags": {
+        "is_self_report_only": labs.is_self_report_only,
+        "is_outdated": labs.is_outdated,
+        "has_quality_issues": labs.has_quality_issues,
+      },
+      "context_flags": {
+        "pregnancy": ctx.pregnancy,
+        "anaemia": ctx.anaemia,
+        "haemoglobinopathy": ctx.haemoglobinopathy,
+        "ckd": ctx.ckd,
+      },
+    }
+
+
+def _safe_float(x: Any) -> Optional[float]:
+  try:
+    if x is None:
+      return None
+    return float(x)
+  except (TypeError, ValueError):
+    return None

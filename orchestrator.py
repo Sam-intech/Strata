@@ -49,17 +49,40 @@ class OrchestrationLogger:
 def logged_node(node_name: str, logger: OrchestrationLogger) -> Callable[[Callable[[Dict[str, Any]], Dict[str, Any]]], Callable[[Dict[str, Any]], Dict[str, Any]]]:
   def deco(fn: Callable[[Dict[str, Any]], Dict[str, Any]]) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
     def wrapped(state: Dict[str, Any]) -> Dict[str, Any]:
-      logger.event("node_start", node_name, {"mode": state.get("mode"), "run_id": state.get("run_id")})
+      logs = state.setdefault("logs", [])
+      logs.append({
+        "kind": "node_start",
+        "node": node_name,
+        "payload": {
+          "mode": state.get("mode"), 
+          "run_id": state.get("run_id")
+        }
+      })
+
+      # logger.event("node_start", node_name, {"mode": state.get("mode"), "run_id": state.get("run_id")})
       try:
         out = fn(state)
-        logger.event("node_end", node_name, {"keys_updated": list(out.keys())})
+        logs.append({
+          "kind": "node_end", 
+          "node": node_name,
+          "payload": {
+            "keys_updated": list(out.keys())
+          }
+        })
         return out
       except Exception as e:
-        logger.event("node_error", node_name, {"error": repr(e)})
+        logs.append({
+          "kind": "node_error", 
+          "node": node_name,
+          "payload": {
+            "error": repr(e)
+          }
+        })
         raise
     
     return wrapped
   return deco
+
 
 
 
@@ -247,9 +270,17 @@ class StrataOrchestrator:
     labs_raw = state.get("labs_raw", {}) or {}
 
     clinical = state["clinical_output"]
+
+    triage_map = {
+      "low": "low_risk",
+      "medium": "routine_follow_up",
+      "high": "high_risk",
+      "critical": "high_risk",
+    }
+
     clinical_risk_payload = {
       "risk_T2D_now": clinical.risk_T2D_now,
-      "triage_label": clinical.triage_label
+      "triage_label": triage_map.get(clinical.triage_label, "routine_follow_up")
     }
 
     lab_out = self.lab_agent.assess(
@@ -339,6 +370,8 @@ class StrataOrchestrator:
       },
     }
 
+    agg["orchestration_logs"] = state.get("logs", [])
+
     # Dataset passthrough for evaluation
     if state["mode"] == "evaluation":
       agg["dset_row_index"] = state.get("dset_row_index")
@@ -352,18 +385,7 @@ class StrataOrchestrator:
     if self.explanation_agent is None:
       return {"explanation_output": None}
 
-    clinical = state["clinical_output"]
-    lab_out = state["lab_output"]
-    diag_out = state["diagnostic_output"]
-
-    # Your explanation_agent.py defines its own types; we keep it pragmatic:
-    # if your ExplanationAgent expects specific dataclasses, adapt here.
-    explanation = self.explanation_agent.explain_case(
-      clinical=clinical,          # ClinicalAssessmentOutput
-      laboratory=lab_out,         # LabAgentOutput
-      diagnostic=diag_out,        # DiagnosticResult
-    )
-
+    explanation = self.explanation_agent.render(trace=state["aggregated"])
     return {"explanation_output": explanation}
   
 
@@ -373,23 +395,12 @@ class StrataOrchestrator:
 
     out: Dict[str, Any] = {
       "result": agg,
-      "explanation": None,
+      "explanation": explanation,
     }
 
-    if explanation is not None:
-      # try to serialise in a stable way
-      if hasattr(explanation, "clinician_report") and hasattr(explanation.clinician_report, "as_dict"):
-        out["explanation"] = {
-          "clinician_report": explanation.clinician_report.as_dict(),
-          "patient_summary": explanation.patient_summary.__dict__ if getattr(explanation, "patient_summary", None) else None,
-        }
-      elif hasattr(explanation, "__dict__"):
-        out["explanation"] = explanation.__dict__
-      else:
-        out["explanation"] = explanation
-
     return {"final_output": out}
-  
+
+
 
 # ----------------------
 def build_orchestrator(*, model_path: Path, preprocessor_path: Path, enable_explanations: bool = True, use_checkpointer: bool = False, sqlite_path: Optional[str] = None, logger: Optional[OrchestrationLogger] = None) -> "StrataOrchestrator":
@@ -401,6 +412,9 @@ def build_orchestrator(*, model_path: Path, preprocessor_path: Path, enable_expl
 
   lab_agent = LaboratoryAgent()
   diagnostic_agent = DiagnosticAgent()
+
+  llm = MyLLMClient(...)  # implements generate(system, user, temperature)
+  explanation_agent = ExplanationAgent(llm=llm) if enable_explanations else None
 
   explanation_agent = ExplanationAgent() if enable_explanations else None
 
