@@ -392,15 +392,13 @@ class StrataOrchestrator:
   
 
   def node_output(self, state: OrchestrationState) -> Dict[str, Any]:
-    agg = state["aggregated"]
-    explanation = state.get("explanation_output")
-
-    out: Dict[str, Any] = {
-      "result": agg,
-      "explanation": explanation,
+    return {
+      "final_output": {
+        "result": state["aggregated"],
+        "explanation": state.get("explanation_output"),
+      }
     }
 
-    return {"final_output": out}
 
 
 

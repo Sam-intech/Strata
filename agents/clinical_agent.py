@@ -143,7 +143,14 @@ class ClinicalAssessmentAgent:
         base = self._base_feature_from_transformed(names_raw[i])
         if missing_flags.get(f"{base}_missing", False):
           continue
-        out[self._humanize_feature_name(names_raw[i])] = float(contribs[i])
+
+        val = float(contribs[i])
+        if abs(val) < 1e-6:
+          continue
+        if any(key.startswith(base) for key in out.keys()):
+          continue
+
+        out[self._humanize_feature_name(names_raw[i])] = val
         if len(out) >= k:
           break
       return out
@@ -158,7 +165,15 @@ class ClinicalAssessmentAgent:
         base = self._base_feature_from_transformed(names_raw[i])
         if missing_flags.get(f"{base}_missing", False):
           continue
-        out[self._humanize_feature_name(names_raw[i])] = float(imps[i])
+
+        val = float(imps[i])
+        if abs(val) < 1e-12:
+          continue
+
+        if any(key.startswith(base) for key in out.keys()):
+          continue
+
+        out[self._humanize_feature_name(names_raw[i])] = val
         if len(out) >= k:
           break
       return out
