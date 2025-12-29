@@ -90,35 +90,87 @@ class ClinicalAssessmentAgent:
       return None
 
 
-  def _top_contributors(self, x_row: np.ndarray) -> Dict[str, float]:
-    names = self.feature_names or [f"f_{i}" for i in range(len(x_row))]
+  def _base_feature_from_transformed(self, name: str) -> str:
+    # strip transformer prefix if present
+    if "__" in name:
+      name = name.split("__", 1)[1]
+
+    # match the longest canonical feature prefix
+    candidates = sorted(
+      ["gender", "age", "bmi", "glucose", "hba1c", "blood_pressure", "hypertension", "heart_disease", "smoking_history", "insulin"],
+      key=len,
+      reverse=True,
+    )
+    for feat in candidates:
+      if name == feat or name.startswith(feat + "_"):
+        return feat
+
+    # fallback
+    return name
+  
+
+  def _humanize_feature_name(self, name: str) -> str:
+    # strip transformer prefix
+    if "__" in name:
+      name = name.split("__", 1)[1]
+
+    # categorical: feature_categoryValue
+    base = self._base_feature_from_transformed(name)
+    if name.startswith(base + "_"):
+      category = name[len(base) + 1 :]
+      return f"{base}={category}"
+
+    # numeric: just base
+    return base
+
+
+
+  def _top_contributors(self, x_row: np.ndarray, *, missing_flags: Optional[Dict[str, bool]] = None) -> Dict[str, float]:
+    names_raw = self.feature_names or [f"f_{i}" for i in range(len(x_row))]
     k = self.config.top_k_contributors
+    missing_flags = missing_flags or {}
 
     # Linear
     if hasattr(self.model, "coef_"):
       coefs = getattr(self.model, "coef_")
-      if isinstance(coefs, np.ndarray) and coefs.ndim >= 2:
-        coefs_1 = coefs[0]
-      else:
-        coefs_1 = np.asarray(coefs).reshape(-1)
+      coefs_1 = coefs[0] if isinstance(coefs, np.ndarray) and coefs.ndim >= 2 else np.asarray(coefs).reshape(-1)
 
       contribs = coefs_1 * x_row
-      idx = np.argsort(np.abs(contribs))[::-1][:k]
-      return {names[i]: float(contribs[i]) for i in idx}
-    
+      idx_sorted = np.argsort(np.abs(contribs))[::-1]
+
+      out: Dict[str, float] = {}
+      for i in idx_sorted:
+        base = self._base_feature_from_transformed(names_raw[i])
+        if missing_flags.get(f"{base}_missing", False):
+          continue
+        out[self._humanize_feature_name(names_raw[i])] = float(contribs[i])
+        if len(out) >= k:
+          break
+      return out
+
     # Tree-style importance
     if hasattr(self.model, "feature_importances_"):
       imps = np.asarray(getattr(self.model, "feature_importances_")).reshape(-1)
-      idx = np.argsort(imps)[::-1][:k]
-      return {names[i]: float(imps[i]) for i in idx}
-    
+      idx_sorted = np.argsort(imps)[::-1]
+
+      out: Dict[str, float] = {}
+      for i in idx_sorted:
+        base = self._base_feature_from_transformed(names_raw[i])
+        if missing_flags.get(f"{base}_missing", False):
+          continue
+        out[self._humanize_feature_name(names_raw[i])] = float(imps[i])
+        if len(out) >= k:
+          break
+      return out
+
     return {}
+
 
 
 
   # ---------------- 
   # public API 
-  def predict_single(self, cleaned_row: pd.Series) -> ClinicalAssessmentOutput:
+  def predict_single(self, cleaned_row: pd.Series, *, missing_flags: Optional[Dict[str, bool]] = None) -> ClinicalAssessmentOutput:
     assert self.is_fitted_, "ClinicalAssessmentAgent is not fitted (loaded model missing fitted attributes)."
 
     x_row = np.asarray(cleaned_row).reshape(-1) if not isinstance(cleaned_row, pd.Series) else self._align_row_to_feature_order(cleaned_row)
@@ -128,12 +180,9 @@ class ClinicalAssessmentAgent:
     if hasattr(self.model, "predict_proba"):
       proba_vec = self.model.predict_proba(x)[0]
       raw_proba = proba_vec
-
       pos_idx = self._positive_class_index()
       if pos_idx is None:
-        # fallback assumption: binary classifier, positive class is index 1
         pos_idx = 1 if len(proba_vec) > 1 else 0
-        
       risk = float(proba_vec[pos_idx])
     else:
       if not hasattr(self.model, "decision_function"):
@@ -142,7 +191,7 @@ class ClinicalAssessmentAgent:
       risk = float(1.0 / (1.0 + np.exp(-score)))
 
     triage = self._triage_from_risk(risk)
-    contribs = self._top_contributors(x_row)
+    contribs = self._top_contributors(x_row, missing_flags=missing_flags)
 
     return ClinicalAssessmentOutput(
       risk_T2D_now=risk,
@@ -154,6 +203,7 @@ class ClinicalAssessmentAgent:
         "feature_names_source": self._feature_names_source,
       },
     )
+
   
 
   def predict_batch(self, cleaned_features: pd.DataFrame) -> pd.DataFrame:
@@ -183,3 +233,5 @@ class ClinicalAssessmentAgent:
       {"risk_T2D_now": proba, "triage_label": triage},
       index=getattr(cleaned_features, "index", None),
     )
+  
+

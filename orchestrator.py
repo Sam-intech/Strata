@@ -47,8 +47,9 @@ class OrchestrationLogger:
     self._log.info("%s | %s | %s", kind, node, payload)
 
 
-def logged_node(node_name: str, logger: OrchestrationLogger) -> Callable[[Callable[[Dict[str, Any]], Dict[str, Any]]], Callable[[Dict[str, Any]], Dict[str, Any]]]:
-  def deco(fn: Callable[[Dict[str, Any]], Dict[str, Any]]) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
+def logged_node(node_name: str, logger: OrchestrationLogger):  # -> Callable[[Callable[[Dict[str, Any]], Dict[str, Any]]], Callable[[Dict[str, Any]], Dict[str, Any]]]:
+  # def deco(fn: Callable[[Dict[str, Any]], Dict[str, Any]]) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
+  def deco(fn):
     def wrapped(state: Dict[str, Any]) -> Dict[str, Any]:
       logs = state.setdefault("logs", [])
       logs.append({
@@ -70,7 +71,7 @@ def logged_node(node_name: str, logger: OrchestrationLogger) -> Callable[[Callab
             "keys_updated": list(out.keys())
           }
         })
-        return out
+        return {"logs": logs, **out}
       except Exception as e:
         logs.append({
           "kind": "node_error", 
@@ -260,7 +261,10 @@ class StrataOrchestrator:
   def node_clinical_agent(self, state: OrchestrationState) -> Dict[str, Any]:
     cleaned_row = state["cleaned_row"]
 
-    clinical_out = self.clinical_agent.predict_single(cleaned_row)
+    flags_df = state["data_output"].flags
+    missing_flags = flags_df.iloc[0].to_dict() if hasattr(flags_df, "iloc") else {}
+    clinical_out = self.clinical_agent.predict_single(cleaned_row, missing_flags=missing_flags)
+
 
     return {
       "clinical_output": clinical_out
@@ -289,9 +293,6 @@ class StrataOrchestrator:
       clinical_risk = clinical_risk_payload,
       context = {}  
     )
-
-    # print("\n[DEBUG] LabAgentOutput:")
-    # print(lab_out.model_dump())
 
     return {
       "lab_output": lab_out
@@ -408,12 +409,21 @@ def build_orchestrator(*, model_path: Path, preprocessor_path: Path, enable_expl
   preprocessor = joblib.load(preprocessor_path)
   data_agent = DataHandlingAgent(preprocessor = preprocessor)
 
+  # -------------------------------------------------------------------------------------
   model = joblib.load(model_path)
-  clinical_agent = ClinicalAssessmentAgent(model = model)
+  # --- extract feature names from the fitted preprocessor ---
+  if hasattr(preprocessor, "get_feature_names_out"):
+    feature_names = list(preprocessor.get_feature_names_out())
+  else:
+    feature_names = None  # fallback (should not happen in your setup)
 
+  clinical_agent = ClinicalAssessmentAgent(model = model, feature_names = feature_names,)
+
+  # ----------------------------------
   lab_agent = LaboratoryAgent()
   diagnostic_agent = DiagnosticAgent()
 
+  # -------------------------------------------
   llm = OpenAILLMClient(OpenAILLMConfig(
     api_key = None,
     model = "gpt-4.1-mini",
@@ -421,6 +431,7 @@ def build_orchestrator(*, model_path: Path, preprocessor_path: Path, enable_expl
   ))
   explanation_agent = ExplanationAgent(llm=llm) 
 
+  # ---------------------------------------
   cfg = OrchestrationConfig(
     use_checkpointer = use_checkpointer,
     sqlite_path = sqlite_path,

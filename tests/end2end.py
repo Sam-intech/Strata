@@ -1,4 +1,6 @@
 from pathlib import Path
+import json
+# from pprint import pprint
 # import joblib
 from orchestrator import build_orchestrator
 # =====================================================
@@ -18,13 +20,13 @@ def main():
   )
 
   patient_raw = {
-    "gender": "male",
-    "age": 45,
-    "bmi": 31.2,
-    "glucose": 158,
+    "gender": "female",
+    "age": 28,
+    "bmi": 12.2,
+    "glucose": 258,
     "hypertension": 1,
     "heart_disease": 0,
-    "smoking_history": "never",
+    "smoking_history": "yes",
   }
 
   out = orch.invoke(
@@ -34,7 +36,9 @@ def main():
     labs_raw = {},
   )
 
-  print(out)
+  # print(out)
+  print(json.dumps(out, indent=2, ensure_ascii=False))
+  # pprint(out, sort_dicts=False)
 
 
 # ============================================
