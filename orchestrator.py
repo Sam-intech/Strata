@@ -8,16 +8,17 @@ from typing_extensions import TypedDict, NotRequired
 
 import pandas as pd
 import joblib
+from llm_client import OpenAILLMClient, OpenAILLMConfig
 from langgraph.graph import StateGraph, START, END
 try:
   from langgraph.checkpoint.sqlite import SqliteSaver
 except ImportError:
   SqliteSaver = None
-
 try:
   from langgraph.checkpoint.memory import InMemorySaver
 except ImportError:
   InMemorySaver = None
+
 
 # -----import agents ----
 from agents.data_agent import DataHandlingAgent, FEATURES, TARGET
@@ -289,8 +290,8 @@ class StrataOrchestrator:
       context = {}  
     )
 
-    print("\n[DEBUG] LabAgentOutput:")
-    print(lab_out.model_dump())
+    # print("\n[DEBUG] LabAgentOutput:")
+    # print(lab_out.model_dump())
 
     return {
       "lab_output": lab_out
@@ -413,10 +414,12 @@ def build_orchestrator(*, model_path: Path, preprocessor_path: Path, enable_expl
   lab_agent = LaboratoryAgent()
   diagnostic_agent = DiagnosticAgent()
 
-  llm = MyLLMClient(...)  # implements generate(system, user, temperature)
-  explanation_agent = ExplanationAgent(llm=llm) if enable_explanations else None
-
-  explanation_agent = ExplanationAgent() if enable_explanations else None
+  llm = OpenAILLMClient(OpenAILLMConfig(
+    api_key = None,
+    model = "gpt-4.1-mini",
+    timeout_s = 30.0,
+  ))
+  explanation_agent = ExplanationAgent(llm=llm) 
 
   cfg = OrchestrationConfig(
     use_checkpointer = use_checkpointer,

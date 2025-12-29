@@ -43,7 +43,7 @@ class ExplanationAgent:
 
     patient_raw = None
     if self.config.include_patient_summary:
-      patient = self.llm.generate(
+      patient_raw = self.llm.generate(
         system = self._system_prompt("patient"),
         user = prompt,
         temperature = self.config.temperature,
@@ -60,6 +60,28 @@ class ExplanationAgent:
         "llm_temperature": self.config.temperature,
       },
     }
+  
+
+  def _wrap_text_report(self, payload: Any) -> Dict[str, Any]:
+    if payload is None:
+      return {"text": ""}
+
+    # If _wrap_rendered returned its normal dict shape
+    if isinstance(payload, dict):
+      if "json" in payload and isinstance(payload["json"], dict):
+        return {"json": payload["json"]}
+      if "text" in payload:
+        return {"text": str(payload["text"])}
+      # Unknown dict shape: keep it but stringify safely
+      return {"text": json.dumps(payload, ensure_ascii=False)}
+
+    # If someone passed a raw string
+    if isinstance(payload, str):
+      return {"text": payload.strip()}
+
+    # Anything else
+    return {"text": str(payload)}
+
 
 
   # ---------------------------------------------------------------------------
