@@ -1,7 +1,6 @@
 # ========================
 # secret environment
-
-
+backend/.env
 .env
 .env.*
 !.env.example

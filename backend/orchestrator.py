@@ -20,6 +20,8 @@ try:
 except ImportError:
   InMemorySaver = None
 
+from dotenv import load_dotenv
+load_dotenv()
 
 # -----import agents ----
 from agents.data_agent import DataHandlingAgent, FEATURES, TARGET
