@@ -522,22 +522,7 @@ class DataHandlingAgent:
     if "bmi" in dset.columns:
       flags["bmi_out_of_range_soft"] = dset["bmi"].notna() & ~dset["bmi"].between(10, 80)
 
-    # --- normalise smoking_history to training-compatible buckets ---
-    if "smoking_history" in dset.columns:
-      m = {
-        "yes": "current",
-        "y": "current",
-        "true": "current",
-        "no": "never",
-        "n": "never",
-        "false": "never",
-      }
-      dset["smoking_history"] = (
-        dset["smoking_history"]
-          .str.strip()
-          .str.lower()
-          .map(lambda v: m.get(v, v))
-      )
+    
 
     # ---- force categorical columns to strings (prevents OneHotEncoder mixed type crash) ----
     for col in ["gender", "hypertension", "heart_disease", "smoking_history"]:

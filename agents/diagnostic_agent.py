@@ -7,9 +7,7 @@ import math
 
 
 DiagnosisLabel = Literal["normal", "high_risk", "T2D", "uncertain"]
-
 DiagnosticBasis = Literal["HbA1c", "FPG", "OGTT_2h", "risk_only", "none"]
-
 DiagnosticNextStep = Literal[
   "routine_monitoring",
   "monitor_and_reassess_risk",
@@ -271,7 +269,13 @@ class DiagnosticAgent:
       ctx = ctx,
     )
 
-    return DiagnosticResult(label = label, confidence = conf, next_step = next_step, basis = "FPG", reasoning_tokens=reasoning)
+    return DiagnosticResult(
+      label = label, 
+      confidence = conf, 
+      next_step = next_step, 
+      basis = "FPG", 
+      reasoning_tokens=reasoning
+    )
 
 
   # OGTT-driven diagnosis -----

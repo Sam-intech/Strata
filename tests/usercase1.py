@@ -35,7 +35,7 @@ def main():
   out = orch.invoke(
     run_id = "usercase1",
     mode = "inference",
-    patient_info = patient_raw,
+    patient_raw = patient_raw,
     labs_raw = {},
   )
 

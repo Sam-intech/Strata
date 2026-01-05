@@ -1,0 +1,27 @@
+{
+  "dataset": "pima",
+  "n_test": 154,
+  "positive_labels": [
+    "T2D",
+    "high_risk",
+    "uncertain"
+  ],
+  "split": {
+    "test_size": 0.2,
+    "random_state": 42,
+    "stratified": true
+  },
+  "accuracy": 0.45454545454545453,
+  "precision": 0.391304347826087,
+  "recall": 1.0,
+  "f1": 0.5625,
+  "roc_auc": 0.8020370370370371,
+  "confusion_matrix": {
+    "tn_fp_fn_tp": [
+      16,
+      84,
+      0,
+      54
+    ]
+  }
+}

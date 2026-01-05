@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -372,7 +373,7 @@ class StrataOrchestrator:
       },
     }
 
-    agg["orchestration_logs"] = state.get("logs", [])
+    # agg["orchestration_logs"] = state.get("logs", [])
 
     # Dataset passthrough for evaluation
     if state["mode"] == "evaluation":
@@ -392,14 +393,53 @@ class StrataOrchestrator:
   
 
   def node_output(self, state: OrchestrationState) -> Dict[str, Any]:
-    return {
-      "final_output": {
-        "result": state["aggregated"],
-        "explanation": state.get("explanation_output"),
-      }
+    # return {
+    #   "final_output": {
+    #     "result": state["aggregated"],
+    #     "explanation": state.get("explanation_output"),
+    #   }
+    # }
+    agg = state["aggregated"]
+    explanation = state.get("explanation_output", None)
+
+    output = {
+      "info": {
+        "mode": agg.get("mode"),
+        "run_id": agg.get("run_id"),
+        "patient_raw": agg.get("patient_raw"),
+        # "data_flags": agg.get("data_flags"),
+        # "data_validation_errors": agg.get("data_validation_errors"),
+      },
+
+      "clinical": {
+        "risk_T2D_now": agg.get("clinical", {}).get("risk_T2D_now"),
+        "triage_label": agg.get("clinical", {}).get("triage_label"),
+        "top_contributors": agg.get("clinical", {}).get("top_contributors"),
+        # "meta": agg.get("clinical", {}).get("meta"),
+      },
+
+      "laboratory": {
+        "test_plan": agg.get("laboratory", {}).get("test_plan"),
+        # "flags": agg.get("laboratory", {}).get("flags"),
+        # "meta": agg.get("laboratory", {}).get("meta"),
+      },
+
+      "diagnostic": {
+        "label": agg.get("diagnostic", {}).get("label"),
+        "confidence": agg.get("diagnostic", {}).get("confidence"),
+        "next_step": agg.get("diagnostic", {}).get("next_step"),
+        # "basis": agg.get("diagnostic", {}).get("basis"),
+        # "reasoning_tokens": agg.get("diagnostic", {}).get("reasoning_tokens", {}),
+      },
+
+      "explanation": {
+        "clinician_report": (explanation.get("clinician_report", {}) or {}).get("json", explanation.get("clinician_report")),
+        # "patient_summary": (explanation.get("patient_summary", {}) or {}).get("json", explanation.get("patient_summary")),
+        # "meta": explanation.get("meta", {}),
+      },
     }
 
-
+    return {"final_output": output}
 
 
 # ----------------------
@@ -415,19 +455,26 @@ def build_orchestrator(*, model_path: Path, preprocessor_path: Path, enable_expl
   else:
     feature_names = None  # fallback (should not happen in your setup)
 
-  clinical_agent = ClinicalAssessmentAgent(model = model, feature_names = feature_names,)
+  clinical_agent = ClinicalAssessmentAgent(
+    model = model, 
+    feature_names = feature_names,
+  )
 
   # ----------------------------------
   lab_agent = LaboratoryAgent()
   diagnostic_agent = DiagnosticAgent()
 
   # -------------------------------------------
-  llm = OpenAILLMClient(OpenAILLMConfig(
-    api_key = None,
-    model = "gpt-4.1-mini",
-    timeout_s = 30.0,
-  ))
-  explanation_agent = ExplanationAgent(llm=llm) 
+  llm = None
+  explanation_agent = None
+
+  if enable_explanations:
+    llm = OpenAILLMClient(OpenAILLMConfig(
+      api_key = os.getenv("OPENAI_API_KEY"),
+      model = "gpt-4.1-mini",
+      timeout_s = 30.0,
+    ))
+    explanation_agent = ExplanationAgent(llm=llm) 
 
   # ---------------------------------------
   cfg = OrchestrationConfig(
