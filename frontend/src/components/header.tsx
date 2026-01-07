@@ -13,17 +13,17 @@ export default function Header() {
         <nav className="hidden sm:block">
           <ul className="flex gap-8 text-bold">
             <li>
-              <a className="text-sm text-zinc-800 hover:text-blue-600" href="/">
+              <a className="text-sm text-zinc-800 hover:text-[var(--brand)]" href="/">
                 Home
               </a>
             </li>
             <li>
-              <a className="text-sm text-zinc-800 hover:text-blue-600" href="/about">
+              <a className="text-sm text-zinc-800 hover:text-[var(--brand)]" href="/about">
                 About
               </a>
             </li>
             <li>
-              <a className="text-sm text-zinc-800 hover:text-blue-600" href="/contact">
+              <a className="text-sm text-zinc-800 hover:text-[var(--brand)]" href="/contact">
                 Contact
               </a>
             </li>

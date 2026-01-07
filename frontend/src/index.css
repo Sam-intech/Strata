@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+:root{
+  --brand: #51ADE5;
+  --brand-600: #2F9FDE; /* slightly darker */
+  --brand-100: rgba(81, 173, 229, 0.16);
+  --brand-200: rgba(81, 173, 229, 0.28);
+}
+
 /* Hard reset for layout */
 html,
 body,
@@ -17,3 +24,16 @@ body {
   @apply rounded-lg border border-zinc-200 px-3 py-2 text-sm
     focus:outline-none focus:ring-2 focus:ring-zinc-900;
 }
+
+.input{
+  width: 100%;
+  border: 1px solid rgb(228 228 231);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  outline: none;
+}
+.input:focus{
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-100);
+}
+

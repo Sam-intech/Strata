@@ -50,7 +50,7 @@ export default function ResultsPanel({
               )}
             </div>
           </div>
-          <button type="button" onClick={onReset} className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50">
+          <button type="button" onClick={onReset} className="rounded-lg border border-[var(--brand-200)] bg-[var(--brand-100)] px-3 py-2 text-sm hover:bg-[var(--brand-200)]">
             New patient
           </button>
         </div>
@@ -408,7 +408,7 @@ function ContribBar({ name, value }: { name: string; value: number }) {
       </div>
       <div className="mt-2 h-2 w-full rounded-full bg-zinc-100">
         <div
-          className="h-2 rounded-full bg-zinc-900"
+          className="h-2 rounded-full bg-[var(--brand-600)]"
           style={{ width: `${pct * 100}%` }}
         />
       </div>

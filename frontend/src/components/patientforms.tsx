@@ -305,7 +305,7 @@ export default function PatientForm({
         <button
           type="submit"
           disabled={isLoading || !canSubmit}
-          className="w-full h-[50px] rounded-lg bg-black px-4 py-2 text-md font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+          className="w-full h-[50px] rounded-lg bg-[var(--brand)] px-4 py-2 text-md font-medium text-white hover:bg-[var(--brand-600)] disabled:opacity-50"
         >
           {isLoading ? "Running…" : "Run assessment"}
         </button>
@@ -360,7 +360,7 @@ function Toggle({
           className={[
             "rounded-md px-3 py-1 text-sm",
             value === 1
-              ? "bg-zinc-900 text-white"
+              ? "bg-[var(--brand-600)] text-white"
               : "border border-zinc-200 text-zinc-700",
           ].join(" ")}
         >
@@ -370,7 +370,7 @@ function Toggle({
           className={[
             "rounded-md px-3 py-1 text-sm",
             value === 0
-              ? "bg-zinc-900 text-white"
+              ? "bg-[var(--brand-600)] text-white"
               : "border border-zinc-200 text-zinc-700",
           ].join(" ")}
         >
