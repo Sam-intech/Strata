@@ -20,10 +20,10 @@ body {
 }
 
 /* your shared input style */
-.input {
+/* .input {
   @apply rounded-lg border border-zinc-200 px-3 py-2 text-sm
     focus:outline-none focus:ring-2 focus:ring-zinc-900;
-}
+} */
 
 .input{
   width: 100%;
