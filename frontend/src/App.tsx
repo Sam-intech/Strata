@@ -50,7 +50,7 @@ export default function App() {
       <Header />
 
       {/* header fixed at top (h-16) */}
-      <main className="w-full pt-16">
+      <main className="w-full px-15 pt-16">
         <div className="relative h-[calc(100vh-64px)] w-full overflow-hidden">
           {/* CENTER STAGE: scrollable + centered */}
           <section

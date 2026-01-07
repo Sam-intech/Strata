@@ -1,7 +1,7 @@
 export default function Header() {
   return (
-    <header className="fixed top-0 z-50 w-full border-b border-zinc-200 bg-white">
-      <div className="mx-auto flex h-14 items-center justify-between px-20">
+    <header className="fixed top-0 z-50 w-full border-b border-zinc-200 bg-white px-20">
+      <div className="mx-auto flex h-14 items-center justify-between">
         <div className="flex items-center">
           <img
             src="/logo.svg"
