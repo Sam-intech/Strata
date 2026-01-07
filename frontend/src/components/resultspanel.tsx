@@ -33,7 +33,7 @@ export default function ResultsPanel({
   // ===========================================================================
   // result ui starts here
   return (
-    <div className="w-full max-w-3xl rounded-xl border border-zinc-200 bg-white p-6 shadow-sm text-left flex flex-col gap-10">
+    <div className="w-full max-w-none rounded-xl border border-zinc-200 bg-white p-6 shadow-sm text-left flex flex-col gap-10">
       {/* Header */}
       {/* <div className="flex flex-col gap-2"> */}
         <div className="flex items-start justify-between gap-4">
@@ -147,6 +147,58 @@ export default function ResultsPanel({
                 </div>
               </div>
 
+
+              {/* Explanation */}
+              <div className="rounded-xl border border-zinc-200 p-5">
+                <div className="text-sm font-semibold text-zinc-900">
+                  Explanation
+                </div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  Structured narrative for clinician review.
+                </div>
+                <div className="mt-4 space-y-4">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-xs font-semibold text-zinc-500">
+                      Summary
+                    </div>
+                    <div className="mt-1 text-sm text-zinc-800">
+                      {expl?.summary ? String(expl.summary) : "—"}
+                    </div>
+                  </div>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-lg border border-zinc-200 p-4">
+                      <div className="text-xs font-semibold text-zinc-500">
+                        Reasoning steps
+                      </div>
+                      {Array.isArray(expl?.reasoning_steps) &&
+                      expl.reasoning_steps.length > 0 ? (
+                        <ul className="mt-2 space-y-2 text-sm text-zinc-700">
+                          {expl.reasoning_steps.map((s: any, i: number) => (
+                            <li key={i} className="flex gap-2">
+                              <span className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-zinc-900" />
+                              <span>{String(s)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="mt-2 text-sm text-zinc-600">—</div>
+                      )}
+                    </div>
+                    <div className="rounded-lg border border-zinc-200 p-4">
+                      <div className="text-xs font-semibold text-zinc-500">
+                        Clinical alignment
+                      </div>
+                      <div className="mt-2 text-sm text-zinc-700">
+                        {expl?.clinical_alignment
+                          ? String(expl.clinical_alignment)
+                          : "—"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+
               {/* Diagnosis card */}
               <div className="rounded-xl border border-zinc-200 p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -176,6 +228,7 @@ export default function ResultsPanel({
                   />
                 </div>
               </div>
+
 
               {/* Contributors + Labs */}
               <div className="grid gap-4 lg:grid-cols-2">
@@ -297,58 +350,9 @@ export default function ResultsPanel({
                 </div>
               </div>
 
-              {/* Explanation */}
-              <div className="rounded-xl border border-zinc-200 p-5">
-                <div className="text-sm font-semibold text-zinc-900">
-                  Explanation
-                </div>
-                <div className="mt-1 text-xs text-zinc-500">
-                  Structured narrative for clinician review.
-                </div>
-                <div className="mt-4 space-y-4">
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-xs font-semibold text-zinc-500">
-                      Summary
-                    </div>
-                    <div className="mt-1 text-sm text-zinc-800">
-                      {expl?.summary ? String(expl.summary) : "—"}
-                    </div>
-                  </div>
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <div className="rounded-lg border border-zinc-200 p-4">
-                      <div className="text-xs font-semibold text-zinc-500">
-                        Reasoning steps
-                      </div>
-                      {Array.isArray(expl?.reasoning_steps) &&
-                      expl.reasoning_steps.length > 0 ? (
-                        <ul className="mt-2 space-y-2 text-sm text-zinc-700">
-                          {expl.reasoning_steps.map((s: any, i: number) => (
-                            <li key={i} className="flex gap-2">
-                              <span className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-zinc-900" />
-                              <span>{String(s)}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <div className="mt-2 text-sm text-zinc-600">—</div>
-                      )}
-                    </div>
-                    <div className="rounded-lg border border-zinc-200 p-4">
-                      <div className="text-xs font-semibold text-zinc-500">
-                        Clinical alignment
-                      </div>
-                      <div className="mt-2 text-sm text-zinc-700">
-                        {expl?.clinical_alignment
-                          ? String(expl.clinical_alignment)
-                          : "—"}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
 
               {/* System info */}
-              <div className="rounded-xl border border-zinc-200 p-5">
+              {/* <div className="rounded-xl border border-zinc-200 p-5">
                 <div className="text-sm font-semibold text-zinc-900">
                   System info
                 </div>
@@ -365,7 +369,7 @@ export default function ResultsPanel({
                     }
                   />
                 </div>
-              </div>
+              </div> */}
             </>
           )}
         </div>

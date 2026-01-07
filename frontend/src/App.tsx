@@ -2,111 +2,141 @@ import { useState } from "react";
 import Header from "./components/header";
 import PatientForm from "./components/patientforms";
 import ResultsPanel from "./components/resultspanel";
+// ========================================================
 
 // Replace with real backend call later
-async function fakeInfer(payload: any) {
+async function fakeInfer(_payload: any) {
   await new Promise((r) => setTimeout(r, 700));
   return {
-    risk_T2D_now: 0.42,
-    triage_label: "medium",
-    next_steps: ["order_diagnostic_labs"],
-    data_flags: { hba1c_missing: true },
-    raw: payload,
+    run_id: "run_2026_01_07_001",
+    final_output: {
+      clinical_assessment: {
+        risk_T2D_now: 0.82,
+        triage_label: "critical",
+        top_contributors: {
+          hba1c: 0.31,
+          glucose: 0.27,
+          bmi: 0.14,
+          age: 0.06,
+          hypertension: 0.04,
+        },
+        raw_proba_vector: [0.18, 0.82],
+      },
+      laboratory_assessment: {
+        lab_evidence: [
+          { test: "HbA1c", value: 52, unit: "mmol/mol", interpreted_as: "diabetes_range", is_recent: true },
+          { test: "FPG", value: 7.4, unit: "mmol/L", interpreted_as: "diabetes_range", is_recent: true },
+        ],
+        urgency: "priority",
+        recommend_repeat_test: false,
+      },
+      diagnostic_assessment: {
+        diagnosis_label: "T2D",
+        diagnostic_basis: "HbA1c",
+        confidence_level: "high",
+        recommended_next_step: "confirm_diagnosis_and_initiate_management",
+      },
+      explanation: {
+        summary: "The patient demonstrates a high probability of Type 2 Diabetes.",
+        reasoning_steps: [
+          "HbA1c is in the diagnostic range for diabetes (≥48 mmol/mol).",
+          "Fasting plasma glucose exceeds diagnostic thresholds.",
+          "BMI and age increase baseline metabolic risk.",
+        ],
+        clinical_alignment: "Consistent with NICE and ADA diagnostic criteria.",
+      },
+      meta: {
+        model_version: "clinical_v1.2",
+        assessment_timestamp: "2026-01-07T14:32:10Z",
+        data_completeness: 0.93,
+        flags: [],
+      },
+    },
   };
 }
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(false);
-  const [stage, setStage] = useState<"center" | "split">("center");
+
+  // Only becomes true AFTER we have a response (success or error)
+  const [showResults, setShowResults] = useState(false);
+
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const run = async (formPayload: any) => {
+  const [formKey, setFormKey] = useState(0);
+
+  const run = async (formData: any) => {
     setIsLoading(true);
     setError(null);
-    setStage("split");
 
     try {
-      // Later: replace with real backend call
-      const out = await fakeInfer(formPayload);
+      const out = await fakeInfer(formData); // swap to backend later
       setResult(out);
+      setShowResults(true); // IMPORTANT: animate only after results arrive
     } catch (e: any) {
       setError(e?.message ?? String(e));
       setResult(null);
+      setShowResults(true); // still slide to show error panel
     } finally {
       setIsLoading(false);
     }
   };
 
   const reset = () => {
-    setStage("center");
+    setShowResults(false);
     setResult(null);
     setError(null);
     setIsLoading(false);
+    setFormKey((k) => k + 1); // force PatientForm remount (clears inputs)
   };
 
+  // =======================================================
+  // UI starts here
   return (
     <div className="min-h-screen w-full bg-gray-50">
       <Header />
 
-      {/* header fixed at top (h-16) */}
-      <main className="w-full px-15 pt-16">
-        <div className="relative h-[calc(100vh-64px)] w-full overflow-hidden">
-          {/* CENTER STAGE: scrollable + centered */}
-          <section
-            className={[
-              "absolute inset-0 overflow-y-auto transition-transform duration-500 ease-in-out",
-              stage === "center" ? "translate-x-0" : "-translate-x-full",
-            ].join(" ")}
-          >
-            <div className="flex min-h-full items-center justify-center px-4 py-10">
-              <PatientForm isLoading={isLoading} onSubmit={run} />
-            </div>
-          </section>
-
-          {/* SPLIT STAGE: left scroll + right scroll */}
-          <section
-            className={[
-              "absolute inset-0 flex w-full gap-6 px-4 transition-transform duration-500 ease-in-out",
-              stage === "split" ? "translate-x-0" : "translate-x-full",
-            ].join(" ")}
-          >
-            {/* Left: form (scrollable column) */}
-            <div className="h-full w-full overflow-y-auto py-10">
-              <div className="flex justify-start">
-                <PatientForm isLoading={isLoading} onSubmit={run} />
+      {/* header is fixed h-16; pt-16 offsets content */}
+      <main className="w-full pt-16">
+        {/* Full-height workspace under header */}
+        <div className="h-[calc(100vh-64px)] w-full px-5 py-6">
+          {/* Push-style split layout */}
+          <div className="flex h-full w-full items-start gap-6">
+            {/* LEFT: Patient form (always mounted) */}
+            <section
+              className={[
+                "transition-all duration-500 ease-in-out flex justify-center overflow-y-auto max-h-[calc(100vh-64px-48px)] pr-1",
+                showResults ? "w-[30%]" : "w-full",
+              ].join(" ")}
+            >
+              <div
+                className={[
+                  "transition-all duration-500 ease-in-out",
+                  showResults ? "w-full" : "w-full max-w-3xl",
+                ].join(" ")}
+              >
+                <PatientForm key={formKey} isLoading={isLoading} onSubmit={run} />
               </div>
-            </div>
+            </section>
 
-            {/* Right: results (desktop) */}
-            <div className="hidden h-full w-full overflow-y-auto py-10 md:block">
-              <div className="flex justify-end">
-                <ResultsPanel
-                  isLoading={isLoading}
-                  data={result}
-                  error={error}
-                  onReset={reset}
-                />
+            {/* RIGHT: Results panel (slides in + grows to 70%) */}
+            <section
+              className={[
+                "transition-all duration-500 ease-in-out overflow-y-auto max-h-[calc(100vh-64px-48px)] pr-1",
+                showResults ? "w-[70%]" : "w-0",
+              ].join(" ")}
+            >
+              <div
+                className={[
+                  "h-full transition-all duration-500 ease-in-out",
+                  showResults ? "translate-x-0 opacity-100" : "translate-x-10 opacity-0 pointer-events-none",
+                ].join(" ")}
+              >
+                <ResultsPanel isLoading={isLoading} data={result} error={error} onReset={reset} />
               </div>
-            </div>
-          </section>
-
-          {/* Mobile results drawer */}
-          <section
-            className={[
-              "absolute inset-x-0 bottom-0 md:hidden transition-transform duration-500 ease-in-out",
-              stage === "split" ? "translate-y-0" : "translate-y-full",
-            ].join(" ")}
-          >
-            <div className="border-t border-zinc-200 bg-white p-4">
-              <ResultsPanel
-                isLoading={isLoading}
-                data={result}
-                error={error}
-                onReset={reset}
-              />
-            </div>
-          </section>
+            </section>
+          </div>
         </div>
       </main>
     </div>
