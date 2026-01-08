@@ -1,51 +1,110 @@
-export default function ResultsPanel({
-  isLoading,
-  data,
-  error,
-  onReset,
-}: {
-  isLoading?: boolean;
-  data?: any;
-  error?: string | null;
-  onReset: () => void;
-}) {
-  // const runId = data?.run_id ?? data?.runId ?? "—";
-
-  // // NEW: backend wraps everything inside final_output
-  // const root = data?.final_output ?? data?.finalOutput ?? data ?? {};
-
-  // const clinical = root?.clinical_assessment ?? root?.clinicalAssessment ?? null;
-  // const labs = root?.laboratory_assessment ?? root?.laboratoryAssessment ?? null;
-  // const diag = root?.diagnostic_assessment ?? root?.diagnosticAssessment ?? null;
-
-  // // NEW: explanation key is "explanation" (not explanation_output)
-  // const expl = root?.explanation ?? root?.explanation_output ?? root?.explanationOutput ?? null;
-
-  // // NEW: meta key is "meta" (not system_info)
-  // const sys = root?.meta ?? root?.system_info ?? root?.systemInfo ?? null;
-
-  // const risk = clinical?.risk_T2D_now;
-  // const triage = clinical?.triage_label ?? "—";
-  // const contributors = clinical?.top_contributors ?? {};
-  // const labEvidence = labs?.lab_evidence ?? [];
-  // const urgency = labs?.urgency ?? null;
+export default function ResultsPanel({ isLoading, data, error, onReset }: { isLoading?: boolean; data?: any; error?: string | null; onReset: () => void;}) {
   const runId = data?.run_id ?? data?.runId ?? "—";
-
   const root = data?.final_output ?? data?.finalOutput ?? data ?? {};
 
-  const clinical = root?.clinical ?? null;
-  const labs = root?.laboratory ?? null;
-  const diag = root?.diagnostic ?? null;
-  const expl = root?.explanation ?? null;
-  const sys = root?.info ?? null;
+  // accept BOTH shapes (old + new)
+  const clinical =
+    root?.clinical_assessment ??
+    root?.clinicalAssessment ??
+    root?.clinical ??
+    null;
+
+  const labs =
+    root?.laboratory_assessment ??
+    root?.laboratoryAssessment ??
+    root?.laboratory ??
+    null;
+
+  const diag =
+    root?.diagnostic_assessment ??
+    root?.diagnosticAssessment ??
+    root?.diagnostic ??
+    null;
+
+  const explRoot =
+    root?.explanation ??
+    root?.explanation_output ??
+    root?.explanationOutput ??
+    null;
+
+  // --------------------------------------------------------------------------  
+  // NEW backend shape: explanation.clinician_report
+  const expl = explRoot?.clinician_report ?? explRoot ?? null;
+
+  // -- --------------------------------------------------------------------------
+  // meta/system info (new backend currently returns info under `info`)
+  const sys =
+    root?.meta ??
+    root?.system_info ??
+    root?.systemInfo ??
+    root?.info ??
+    null;
 
   const risk = clinical?.risk_T2D_now;
   const triage = clinical?.triage_label ?? "—";
   const contributors = clinical?.top_contributors ?? {};
 
-  // backend currently returns lab plan, not lab_evidence
-  const urgency = labs?.test_plan?.urgency ?? null;
-  const labEvidence = labs?.lab_evidence ?? []; // will be empty with current backend shape
+  // --------------------------------------------------------------------------
+  // NEW backend labs: no lab_evidence; leave table empty for now
+  const labEvidence = labs?.lab_evidence ?? [];
+
+  // -- --------------------------------------------------------------------------
+  // NEW backend urgency in: laboratory.test_plan.urgency
+  const urgency =
+    labs?.urgency ??
+    labs?.test_plan?.urgency ??
+    null;
+
+  // --------------------------------------------------------------------------
+  // NEW backend “repeat test” in: laboratory.test_plan.need_retest
+  const recommendRepeat =
+    typeof labs?.recommend_repeat_test === "boolean"
+      ? labs.recommend_repeat_test
+      : typeof labs?.test_plan?.need_retest === "boolean"
+        ? labs.test_plan.need_retest
+        : undefined;
+
+  // --------------------------------------------------------------------------
+  // --- normalize old/new keys so UI renders ---
+  const assessmentTs =
+    sys?.assessment_timestamp ??
+    sys?.assessmentTimestamp ??
+    sys?.assessment_time ??
+    sys?.assessmentTime ??
+    null;
+
+  const dataCompleteness =
+    sys?.data_completeness ??
+    sys?.dataCompleteness ??
+    null;
+
+  // diagnostic: old vs new
+  const diagLabel =
+    diag?.diagnosis_label ?? diag?.diagnosisLabel ?? diag?.label ?? "—";
+
+  const diagBasis =
+    diag?.diagnostic_basis ?? diag?.diagnosticBasis ?? "—";
+
+  const diagConfidence =
+    diag?.confidence_level ?? diag?.confidenceLevel ?? diag?.confidence ?? null;
+
+  const diagNextStep =
+    diag?.recommended_next_step ??
+    diag?.recommendedNextStep ??
+    diag?.next_step ??
+    diag?.nextStep ??
+    "—";
+
+  // explanation: old vs new (backend has clinician_report.evidence[])
+  const explSummary = expl?.summary ?? "—";
+  const explSteps =
+    expl?.reasoning_steps ??
+    expl?.reasoningSteps ??
+    expl?.evidence ?? // clinician_report.evidence[]
+    [];
+  const explAlignment =
+    expl?.clinical_alignment ?? expl?.clinicalAlignment ?? "—";
+
 
 
   // ===========================================================================
@@ -144,20 +203,28 @@ export default function ResultsPanel({
                       {String(triage)}
                     </span>
                   </div>
-                  {diag?.confidence_level && (
+                  {/* {diag?.confidence_level && (
                     <div className="mt-3 text-xs text-zinc-500">
                       Confidence:{" "}
                       <span className="font-medium text-zinc-700">
                         {String(diag.confidence_level)}
                       </span>
                     </div>
-                  )}
+                  )} */}
+                  {typeof diagConfidence === "number" && (
+                    <div className="mt-3 text-xs text-zinc-500">
+                      Confidence:{" "}
+                      <span className="font-medium text-zinc-700">
+                        {(diagConfidence * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  )}                    
                 </div>
 
                 <div className="rounded-xl border border-zinc-200 p-4">
                   <div className="text-xs text-zinc-500">Data completeness</div>
                   <div className="mt-3 text-2xl font-semibold">
-                    {fmtPct(sys?.data_completeness)}
+                    {dataCompleteness != null ? fmtPct(dataCompleteness) : "—"}
                   </div>
                   <div className="mt-1 text-xs text-zinc-500">
                     Missing/unknown fields reduce confidence.
@@ -180,7 +247,7 @@ export default function ResultsPanel({
                       Summary
                     </div>
                     <div className="mt-1 text-sm text-zinc-800">
-                      {expl?.summary ? String(expl.summary) : "—"}
+                      {String(explSummary)}
                     </div>
                   </div>
                   <div className="grid gap-4 lg:grid-cols-2">
@@ -188,10 +255,9 @@ export default function ResultsPanel({
                       <div className="text-xs font-semibold text-zinc-500">
                         Reasoning steps
                       </div>
-                      {Array.isArray(expl?.reasoning_steps) &&
-                      expl.reasoning_steps.length > 0 ? (
+                      {Array.isArray(explSteps) && explSteps.length > 0 ? (
                         <ul className="mt-2 space-y-2 text-sm text-zinc-700">
-                          {expl.reasoning_steps.map((s: any, i: number) => (
+                          {explSteps.map((s: any, i: number) => (
                             <li key={i} className="flex gap-2">
                               <span className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-zinc-900" />
                               <span>{String(s)}</span>
@@ -207,9 +273,7 @@ export default function ResultsPanel({
                         Clinical alignment
                       </div>
                       <div className="mt-2 text-sm text-zinc-700">
-                        {expl?.clinical_alignment
-                          ? String(expl.clinical_alignment)
-                          : "—"}
+                        {explAlignment ? String(explAlignment) : "—"}
                       </div>
                     </div>
                   </div>
@@ -228,14 +292,19 @@ export default function ResultsPanel({
                       Clinician-facing summary
                     </div>
                   </div>
-                  {diag?.diagnosis_label && (
+                  {/* {diag?.diagnosis_label && (
                     <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-sm font-semibold text-zinc-900">
                       {String(diag.diagnosis_label)}
+                    </span>
+                  )} */}
+                  {diagLabel && diagLabel !== "—" && (
+                    <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-sm font-semibold text-zinc-900">
+                      {String(diagLabel)}
                     </span>
                   )}
                 </div>
                 <div className="mt-4 grid gap-4 sm:grid-cols-3">
-                  <MiniStat label="Basis" value={diag?.diagnostic_basis ?? "—"} />
+                  {/* <MiniStat label="Basis" value={diag?.diagnostic_basis ?? "—"} />
                   <MiniStat
                     label="Confidence"
                     value={diag?.confidence_level ?? "—"}
@@ -243,7 +312,10 @@ export default function ResultsPanel({
                   <MiniStat
                     label="Next step"
                     value={prettySnake(diag?.recommended_next_step ?? "—")}
-                  />
+                  /> */}
+                  <MiniStat label="Basis" value={diagBasis} />
+                  <MiniStat label="Confidence" value={typeof diagConfidence === "number" ? `${(diagConfidence * 100).toFixed(0)}%` : "—"} />
+                  <MiniStat label="Next step" value={prettySnake(diagNextStep)} />
                 </div>
               </div>
 
@@ -280,7 +352,7 @@ export default function ResultsPanel({
                         Highlighted rows suggest abnormal ranges.
                       </div>
                     </div>
-                    {typeof labs?.recommend_repeat_test === "boolean" && (
+                    {/* {typeof labs?.recommend_repeat_test === "boolean" && (
                       <span
                         className={[
                           "rounded-full border px-3 py-1 text-xs font-semibold",
@@ -290,6 +362,20 @@ export default function ResultsPanel({
                         ].join(" ")}
                       >
                         {labs.recommend_repeat_test
+                          ? "Repeat test recommended"
+                          : "No repeat needed"}
+                      </span>
+                    )} */}
+                    {typeof recommendRepeat === "boolean" && (
+                      <span
+                        className={[
+                          "rounded-full border px-3 py-1 text-xs font-semibold",
+                          recommendRepeat
+                            ? "border-amber-200 bg-amber-50 text-amber-800"
+                            : "border-emerald-200 bg-emerald-50 text-emerald-800",
+                        ].join(" ")}
+                      >
+                        {recommendRepeat
                           ? "Repeat test recommended"
                           : "No repeat needed"}
                       </span>
@@ -499,8 +585,9 @@ function prettyKey(k: string) {
 
 function normalizeContrib(obj: Record<string, number>) {
   const entries = Object.entries(obj)
-    .filter(([, v]) => typeof v === "number" && !Number.isNaN(v))
-    .sort((a, b) => b[1] - a[1]);
+  .filter(([, v]) => typeof v === "number" && !Number.isNaN(v))
+  .map(([k, v]) => [k, Math.abs(v)] as const)
+  .sort((a, b) => b[1] - a[1]);
 
   const max = Math.max(...entries.map(([, v]) => v), 0);
   return entries.map(([key, v]) => ({
