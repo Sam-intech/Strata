@@ -9,26 +9,44 @@ export default function ResultsPanel({
   error?: string | null;
   onReset: () => void;
 }) {
+  // const runId = data?.run_id ?? data?.runId ?? "—";
+
+  // // NEW: backend wraps everything inside final_output
+  // const root = data?.final_output ?? data?.finalOutput ?? data ?? {};
+
+  // const clinical = root?.clinical_assessment ?? root?.clinicalAssessment ?? null;
+  // const labs = root?.laboratory_assessment ?? root?.laboratoryAssessment ?? null;
+  // const diag = root?.diagnostic_assessment ?? root?.diagnosticAssessment ?? null;
+
+  // // NEW: explanation key is "explanation" (not explanation_output)
+  // const expl = root?.explanation ?? root?.explanation_output ?? root?.explanationOutput ?? null;
+
+  // // NEW: meta key is "meta" (not system_info)
+  // const sys = root?.meta ?? root?.system_info ?? root?.systemInfo ?? null;
+
+  // const risk = clinical?.risk_T2D_now;
+  // const triage = clinical?.triage_label ?? "—";
+  // const contributors = clinical?.top_contributors ?? {};
+  // const labEvidence = labs?.lab_evidence ?? [];
+  // const urgency = labs?.urgency ?? null;
   const runId = data?.run_id ?? data?.runId ?? "—";
 
-  // NEW: backend wraps everything inside final_output
   const root = data?.final_output ?? data?.finalOutput ?? data ?? {};
 
-  const clinical = root?.clinical_assessment ?? root?.clinicalAssessment ?? null;
-  const labs = root?.laboratory_assessment ?? root?.laboratoryAssessment ?? null;
-  const diag = root?.diagnostic_assessment ?? root?.diagnosticAssessment ?? null;
-
-  // NEW: explanation key is "explanation" (not explanation_output)
-  const expl = root?.explanation ?? root?.explanation_output ?? root?.explanationOutput ?? null;
-
-  // NEW: meta key is "meta" (not system_info)
-  const sys = root?.meta ?? root?.system_info ?? root?.systemInfo ?? null;
+  const clinical = root?.clinical ?? null;
+  const labs = root?.laboratory ?? null;
+  const diag = root?.diagnostic ?? null;
+  const expl = root?.explanation ?? null;
+  const sys = root?.info ?? null;
 
   const risk = clinical?.risk_T2D_now;
   const triage = clinical?.triage_label ?? "—";
   const contributors = clinical?.top_contributors ?? {};
-  const labEvidence = labs?.lab_evidence ?? [];
-  const urgency = labs?.urgency ?? null;
+
+  // backend currently returns lab plan, not lab_evidence
+  const urgency = labs?.test_plan?.urgency ?? null;
+  const labEvidence = labs?.lab_evidence ?? []; // will be empty with current backend shape
+
 
   // ===========================================================================
   // result ui starts here

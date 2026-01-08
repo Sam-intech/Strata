@@ -5,55 +5,29 @@ import ResultsPanel from "./components/resultspanel";
 // ========================================================
 
 // Replace with real backend call later
-async function fakeInfer(_payload: any) {
-  await new Promise((r) => setTimeout(r, 700));
-  return {
-    run_id: "run_2026_01_07_001",
-    final_output: {
-      clinical_assessment: {
-        risk_T2D_now: 0.82,
-        triage_label: "critical",
-        top_contributors: {
-          hba1c: 0.31,
-          glucose: 0.27,
-          bmi: 0.14,
-          age: 0.06,
-          hypertension: 0.04,
-        },
-        raw_proba_vector: [0.18, 0.82],
-      },
-      laboratory_assessment: {
-        lab_evidence: [
-          { test: "HbA1c", value: 52, unit: "mmol/mol", interpreted_as: "diabetes_range", is_recent: true },
-          { test: "FPG", value: 7.4, unit: "mmol/L", interpreted_as: "diabetes_range", is_recent: true },
-        ],
-        urgency: "priority",
-        recommend_repeat_test: false,
-      },
-      diagnostic_assessment: {
-        diagnosis_label: "T2D",
-        diagnostic_basis: "HbA1c",
-        confidence_level: "high",
-        recommended_next_step: "confirm_diagnosis_and_initiate_management",
-      },
-      explanation: {
-        summary: "The patient demonstrates a high probability of Type 2 Diabetes.",
-        reasoning_steps: [
-          "HbA1c is in the diagnostic range for diabetes (≥48 mmol/mol).",
-          "Fasting plasma glucose exceeds diagnostic thresholds.",
-          "BMI and age increase baseline metabolic risk.",
-        ],
-        clinical_alignment: "Consistent with NICE and ADA diagnostic criteria.",
-      },
-      meta: {
-        model_version: "clinical_v1.2",
-        assessment_timestamp: "2026-01-07T14:32:10Z",
-        data_completeness: 0.93,
-        flags: [],
-      },
-    },
-  };
+async function infer(payload: any) {
+  const base = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+
+  const res = await fetch(`${base}/infer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payload}),
+  });
+
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try {
+      const err = await res.json();
+      msg = err?.detail ?? err?.message ?? JSON.stringify(err);
+    } catch {
+      msg = await res.text();
+    }
+    throw new Error(msg || `Request failed (${res.status})`);
+  }
+
+  return res.json();
 }
+
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(false);
@@ -71,7 +45,7 @@ export default function App() {
     setError(null);
 
     try {
-      const out = await fakeInfer(formData); // swap to backend later
+      const out = await infer(formData);
       setResult(out);
       setShowResults(true); // IMPORTANT: animate only after results arrive
     } catch (e: any) {
@@ -142,3 +116,5 @@ export default function App() {
     </div>
   );
 }
+
+console.log("API base:", import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000");
