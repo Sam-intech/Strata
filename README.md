@@ -41,50 +41,9 @@ The system integrates multiple specialised agents (data handling, clinical risk 
 
 ---
 
-## 3. Repository Structure
+## 3. Running the System
 
-```
-.
-├── backend/
-│   ├── agents/
-│   │   ├── data_agent.py
-│   │   ├── clinical_agent.py
-│   │   ├── lab_agent.py
-│   │   ├── diagnostic_agent.py
-│   │   └── explanation_agent.py
-│   ├── orchestrator.py
-│   ├── llm_client.py
-│   ├── main.py
-│   └── evaluation/
-│       └── evaluate_mas.ipynb
-│
-├── frontend/
-│   ├── src/
-│   │   ├── App.tsx
-│   │   ├── main.tsx
-│   │   ├── components/
-│   │   │   ├── Header.tsx
-│   │   │   ├── PatientForms.tsx
-│   │   │   └── ResultsPanel.tsx
-│   │   └── types.ts
-│   └── index.css
-│
-├── artifacts/
-│   ├── clinical_model.joblib
-│   └── eval/
-│
-├── data/
-│   └── raw/
-│
-├── README.md
-└── requirements.txt
-```
-
----
-
-## 4. Running the System
-
-### 4.1 Backend
+### 3.1 Backend
 
 ```bash
 python -m venv venv
@@ -98,7 +57,7 @@ The backend exposes an inference pipeline callable via the orchestrator.
 
 ---
 
-### 4.2 Frontend
+### 3.2 Frontend
 
 ```bash
 npm install
@@ -109,7 +68,7 @@ The frontend consumes the backend response and renders structured clinical resul
 
 ---
 
-## 5. Input & Output Contract
+## 4. Input & Output Contract
 
 ### Input (example)
 
@@ -147,7 +106,7 @@ The frontend consumes the backend response and renders structured clinical resul
 
 ---
 
-## 6. Evaluation
+## 5. Evaluation
 
 The evaluation framework supports:
 
@@ -166,35 +125,10 @@ All results are saved to:
 ```
 artifacts/eval/
 ```
-
 ---
 
-## 7. Reproducibility
-
-* Fixed random seeds for training and evaluation
-* Identical dataset splits for MAS and baseline
-* Versioned model and pipeline metadata included in outputs
-
----
-
-## 8. Scope & Limitations
+## 6. Scope & Limitations
 
 * Research prototype only (not for clinical deployment)
 * Not a diagnostic tool; supports clinical decision-making
 * Evaluation limited to retrospective datasets
-
----
-
-## 9. Dissertation Context
-
-This system was developed as part of an **MSc Artificial Intelligence dissertation** and is intended to demonstrate:
-
-* Practical application of multi-agent systems in healthcare AI
-* Trade-offs between monolithic ML models and agent-based architectures
-* The role of explainability in clinical AI systems
-
----
-
-## 10. License
-
-Academic use only.
