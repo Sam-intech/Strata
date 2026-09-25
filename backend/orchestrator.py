@@ -402,7 +402,8 @@ class StrataOrchestrator:
     #   }
     # }
     agg = state["aggregated"]
-    explanation = state.get("explanation_output", None)
+    # None when explanations are disabled (e.g. no OPENAI_API_KEY)
+    explanation = state.get("explanation_output") or {}
 
     output = {
       "info": {

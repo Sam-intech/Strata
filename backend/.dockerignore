@@ -8,3 +8,17 @@ venv/
 .git/
 artifacts/eval/
 data/raw/
+
+# Cloudflare Worker wrapper (not needed inside the Python image)
+node_modules/
+worker/
+package.json
+package-lock.json
+tsconfig.json
+wrangler.jsonc
+.wrangler/
+# notebooks / eval / tests
+notebook/
+eval/
+tests/
+requirements-dev.txt

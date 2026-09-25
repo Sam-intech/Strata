@@ -67,8 +67,17 @@ class InferResponse(BaseModel):
 # App
 app = FastAPI(title="Strata Clinical API", version="1.0.0")
 
+# Browser origins allowed to call the API. Local dev (any localhost port) is
+# always allowed; production origins come from CORS_ORIGINS (comma-separated).
+CORS_ORIGINS = [
+  o.strip()
+  for o in os.getenv("CORS_ORIGINS", "https://strata.samintech.dev").split(",")
+  if o.strip()
+]
+
 app.add_middleware(
   CORSMiddleware,
+  allow_origins=CORS_ORIGINS,
   allow_origin_regex=r"^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$",
   allow_credentials=True,
   allow_methods=["*"],
@@ -87,9 +96,16 @@ def _startup() -> None:
   if not os.path.exists(PREPROCESSOR_PATH):
     raise RuntimeError(f"PREPROCESSOR_PATH not found: {PREPROCESSOR_PATH}")
 
+  # LLM explanations need an OpenAI key; without one, serve risk results
+  # without explanations instead of crashing the whole server at startup.
+  enable_explanations = bool(os.getenv("OPENAI_API_KEY"))
+  if not enable_explanations:
+    print("OPENAI_API_KEY not set: starting with LLM explanations disabled")
+
   ORCH = build_orchestrator(
     model_path=MODEL_PATH,
     preprocessor_path=PREPROCESSOR_PATH,
+    enable_explanations=enable_explanations,
   )
 
 

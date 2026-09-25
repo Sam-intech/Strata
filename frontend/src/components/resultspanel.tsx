@@ -66,13 +66,6 @@ export default function ResultsPanel({ isLoading, data, error, onReset }: { isLo
 
   // --------------------------------------------------------------------------
   // --- normalize old/new keys so UI renders ---
-  const assessmentTs =
-    sys?.assessment_timestamp ??
-    sys?.assessmentTimestamp ??
-    sys?.assessment_time ??
-    sys?.assessmentTime ??
-    null;
-
   const dataCompleteness =
     sys?.data_completeness ??
     sys?.dataCompleteness ??
