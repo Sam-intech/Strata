@@ -5,7 +5,9 @@
 #   cd backend && ./aws/deploy.sh
 #
 # Needs: Docker running, AWS CLI v2 logged in (`aws configure`).
-# Optional env: AWS_REGION (default eu-west-2), OPENAI_API_KEY, CORS_ORIGINS.
+# Optional env: AWS_REGION (default eu-west-2), CORS_ORIGINS, and the LLM used for
+# the clinician explanation: LLM_API_KEY, LLM_BASE_URL, LLM_MODEL (or OPENAI_API_KEY).
+# Settings you don't pass keep their current value on the function.
 set -euo pipefail
 
 REGION="${AWS_REGION:-eu-west-2}"
@@ -13,7 +15,6 @@ NAME="strata-api"
 ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
 REGISTRY="$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
 IMAGE="$REGISTRY/$NAME:latest"
-CORS="${CORS_ORIGINS:-https://strata.samintech.dev}"
 export AWS_REGION="$REGION" AWS_PAGER=""
 
 cd "$(dirname "$0")/.."
@@ -30,17 +31,33 @@ aws ecr get-login-password | docker login --username AWS --password-stdin "$REGI
 # --provenance=false: Lambda only accepts a single-platform image manifest.
 docker buildx build --platform linux/arm64 --provenance=false -t "$IMAGE" --push .
 
-ENV_VARS="$(printf '{"Variables":{"CORS_ORIGINS":"%s"%s}}' "$CORS" "${OPENAI_API_KEY:+,\"OPENAI_API_KEY\":\"$OPENAI_API_KEY\"}")"
+ENV_KEYS=(CORS_ORIGINS LLM_API_KEY LLM_BASE_URL LLM_MODEL OPENAI_API_KEY)
+FUNCTION_EXISTS=false
+aws lambda get-function --function-name "$NAME" >/dev/null 2>&1 && FUNCTION_EXISTS=true
 
-if aws lambda get-function --function-name "$NAME" >/dev/null 2>&1; then
+# Build the environment: value passed now > value already on the function > default.
+build_env() {
+  local json="" key val
+  for key in "${ENV_KEYS[@]}"; do
+    val="${!key:-}"
+    if [[ -z "$val" && "$FUNCTION_EXISTS" == true ]]; then
+      val="$(aws lambda get-function-configuration --function-name "$NAME" \
+        --query "Environment.Variables.$key" --output text 2>/dev/null || true)"
+      [[ "$val" == "None" ]] && val=""
+    fi
+    [[ -z "$val" && "$key" == CORS_ORIGINS ]] && val="https://strata.samintech.dev"
+    [[ -n "$val" ]] && json+="${json:+,}\"$key\":\"$val\""
+  done
+  printf '{"Variables":{%s}}' "$json"
+}
+ENV_VARS="$(build_env)"
+
+if [[ "$FUNCTION_EXISTS" == true ]]; then
   echo "==> Update function"
   aws lambda update-function-code --function-name "$NAME" --image-uri "$IMAGE" >/dev/null
   aws lambda wait function-updated --function-name "$NAME"
-  # Only touch settings when asked, so an existing OPENAI_API_KEY isn't wiped.
-  if [[ -n "${OPENAI_API_KEY:-}" || -n "${CORS_ORIGINS:-}" ]]; then
-    aws lambda update-function-configuration --function-name "$NAME" --environment "$ENV_VARS" >/dev/null
-    aws lambda wait function-updated --function-name "$NAME"
-  fi
+  aws lambda update-function-configuration --function-name "$NAME" --environment "$ENV_VARS" >/dev/null
+  aws lambda wait function-updated --function-name "$NAME"
 else
   echo "==> Execution role"
   ROLE="$NAME-role"

@@ -29,17 +29,36 @@ Open `<API URL>/health` — you should see `"ok": true`.
 
 Run `./aws/deploy.sh` again whenever the backend changes.
 
-Optional variables for a run:
+Optional variables for a run (anything you don't pass keeps its current value):
 
 | Variable | Effect |
 | --- | --- |
 | `AWS_REGION` | Region to deploy to (default `eu-west-2`) |
-| `OPENAI_API_KEY` | Enables the LLM clinician explanation |
 | `CORS_ORIGINS` | Comma-separated allowed sites (default `https://strata.samintech.dev`) |
+| `LLM_API_KEY` | Key for the LLM that writes the clinician explanation |
+| `LLM_BASE_URL` | Any OpenAI-compatible endpoint (blank = OpenAI) |
+| `LLM_MODEL` | Model name (default `gpt-4.1-mini`) |
+| `OPENAI_API_KEY` | Older name for `LLM_API_KEY` when using OpenAI |
+
+Without any LLM key the API still returns risk, triage and diagnosis — just no explanation.
+If the LLM call fails (no credit, rate limit) the same happens instead of an error.
+
+## Clinician explanations with Cloudflare Workers AI (free tier)
+
+1. Cloudflare dashboard → **Account home** → copy your **Account ID** (right sidebar,
+   or from any dashboard URL: `dash.cloudflare.com/<ACCOUNT_ID>/...`).
+2. **My Profile → API Tokens → Create Token → "Workers AI" template → Create** → copy the token.
+3. Deploy with it:
 
 ```bash
-OPENAI_API_KEY=sk-... ./aws/deploy.sh
+LLM_API_KEY=<cloudflare-token> \
+LLM_BASE_URL=https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1 \
+LLM_MODEL=@cf/meta/llama-3.3-70b-instruct-fp8-fast \
+./aws/deploy.sh
 ```
+
+The free allowance (10,000 neurons/day) covers roughly 70 explanations a day with this
+model, or several hundred with `@cf/meta/llama-3.1-8b-instruct-fast`.
 
 ## Connect the frontend
 

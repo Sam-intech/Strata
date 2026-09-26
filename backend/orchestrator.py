@@ -486,8 +486,9 @@ def build_orchestrator(*, model_path: Path, preprocessor_path: Path, enable_expl
 
   if enable_explanations:
     llm = OpenAILLMClient(OpenAILLMConfig(
-      api_key = os.getenv("OPENAI_API_KEY"),
-      model = "gpt-4.1-mini",
+      api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY"),
+      model = os.getenv("LLM_MODEL") or "gpt-4.1-mini",
+      base_url = os.getenv("LLM_BASE_URL") or None,
       timeout_s = 30.0,
     ))
     explanation_agent = ExplanationAgent(llm=llm) 
