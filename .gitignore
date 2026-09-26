@@ -30,5 +30,3 @@ venv/
 
 replacements.txt
 
-backend/node_modules/
-backend/.wrangler/

@@ -1,42 +1,34 @@
-# Deploying the Strata API on Cloudflare
+# Deploying the Strata API (free)
 
-The API runs as a **Cloudflare Container** (your `Dockerfile`), fronted by a tiny
-Worker (`worker/index.ts`) that forwards requests to it.
+The API runs as a free **Hugging Face Docker Space** (2 vCPU, 16 GB RAM, no card needed).
+A GitHub Action pushes `backend/` to the Space whenever it changes on `main`.
 
-> Cloudflare Containers require the **Workers Paid** plan ($5/month).
+> Free Spaces sleep after ~48 h without traffic; the next request wakes it (takes ~1 min).
 
 ## One-time setup
 
-```bash
-cd backend
-npm install
-npx wrangler login
-# Optional — enables the LLM clinician explanation. Without it the API still
-# returns the risk score, triage and diagnosis.
-npx wrangler secret put OPENAI_API_KEY
-```
+1. Sign up at <https://huggingface.co> (free).
+2. **New Space** (<https://huggingface.co/new-space>):
+   - Name: `strata-api` · SDK: **Docker** → *Blank* · Hardware: **CPU basic (free)** · Public.
+3. **Access token**: <https://huggingface.co/settings/tokens> → *Create new token* → type **Write** → copy it.
+4. In GitHub → this repo → **Settings → Secrets and variables → Actions**:
+   - *Secrets* tab → `HF_TOKEN` = the token from step 3.
+   - *Variables* tab → `HF_SPACE` = `<your-hf-username>/strata-api`.
+5. Optional — LLM clinician explanations: in the Space → **Settings → Variables and secrets**,
+   add secret `OPENAI_API_KEY`. Without it the API still returns risk, triage and diagnosis.
+6. GitHub → **Actions → Deploy backend to Hugging Face → Run workflow**.
 
-## Deploy
-
-Docker must be running locally (wrangler builds the image and pushes it to Cloudflare).
-
-```bash
-npx wrangler deploy
-```
-
-Wrangler prints the URL, e.g. `https://strata-api.<your-subdomain>.workers.dev`.
-Check it: open `<that URL>/health` — you should see `"ok": true`.
-The first request after a quiet period takes a little longer while the container starts.
+The Space builds in a few minutes. Your API URL is
+`https://<your-hf-username>-strata-api.hf.space` — check `<that URL>/health` shows `"ok": true`.
 
 ## Connect the frontend
 
-In the Cloudflare Pages project for the frontend → **Settings → Variables and Secrets**,
-add `VITE_API_BASE_URL` = the Worker URL above (no trailing slash), then redeploy
-the frontend.
+Cloudflare Pages project → **Settings → Variables and Secrets** → `VITE_API_BASE_URL` =
+the API URL above (no trailing slash), then redeploy the frontend.
 
 ## Allowing more sites
 
-Edit `CORS_ORIGINS` in `wrangler.jsonc` (comma-separated), then `npx wrangler deploy`.
+Set `CORS_ORIGINS` (comma-separated) as a Space variable. Default: `https://strata.samintech.dev`.
 
 ## Run locally
 
@@ -44,3 +36,4 @@ Edit `CORS_ORIGINS` in `wrangler.jsonc` (comma-separated), then `npx wrangler de
 pip install -r requirements.txt
 uvicorn api:app --reload --port 8000
 ```
+or from the repo root: `docker compose up --build`.

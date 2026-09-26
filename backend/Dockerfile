@@ -14,12 +14,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy code
 COPY . /app
 
-# Expose backend
-EXPOSE 8000
+# Hugging Face Spaces expects port 7860; other hosts (Render, docker-compose) pass $PORT.
+ENV PORT=7860
+EXPOSE 7860
 
-# Start server
-# If you use FastAPI:
-CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
-#
-# If you currently run main.py:
-# CMD ["python", "main.py"]
+CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT}"]
