@@ -22,18 +22,17 @@ from sklearn.metrics import (
 
 # Import your orchestrator + schema constants
 from orchestrator import build_orchestrator
-from agents.data_agent import FEATURES, TARGET
+from agents.data_agent import TARGET
 # ==========================================================================
 
 
 def extract_score_and_label(final_output: Dict[str, Any]) -> Tuple[float, int]:
   """
   Pulls:
-    - probability score: aggregated.clinical.risk_T2D_now
+    - probability score: clinical.risk_T2D_now
     - predicted label: thresholded at 0.5
   """
-  agg = final_output["result"]
-  score = float(agg["clinical"]["risk_T2D_now"])
+  score = float(final_output["clinical"]["risk_T2D_now"])
   pred = 1 if score >= 0.5 else 0
   return score, pred
 
@@ -105,6 +104,7 @@ def main() -> None:
         random_state=args.seed,
         stratify=df[TARGET] if df[TARGET].nunique() > 1 else None,
     )
+    test_df = test_df.reset_index(drop=True)
 
     orch = build_orchestrator(
         model_path=Path(args.model_path),
@@ -118,14 +118,15 @@ def main() -> None:
     y_score: List[float] = []
     y_pred: List[int] = []
 
-    for i, row in test_df.iterrows():
-        patient_raw: Dict[str, Any] = {k: row.get(k) for k in FEATURES}
-        gt = int(row[TARGET])
+    for i in range(len(test_df)):
+        gt = int(test_df.iloc[i][TARGET])
 
+        # evaluation mode reads the FEATURES columns from the dataset row
         out = orch.invoke(
             run_id=f"eval_{i}",
             mode="evaluation",
-            patient_raw=patient_raw,
+            dset_df=test_df,
+            dset_row_index=i,
             labs_raw={},  # you can pass lab dicts later if your dataset has them
         )
 

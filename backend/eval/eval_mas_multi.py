@@ -74,23 +74,14 @@ def evaluate_dataset(orch, *, dataset_path: Path, dataset_kind: str, threshold: 
   y_pred: List[int] = []
 
   # Iterate rows -> MAS inference
-  feature_cols = [c for c in dset.columns if c != TARGET]
-
   for idx, row in dset.iterrows():
-    patient_raw: Dict[str, Any] = row[feature_cols].to_dict()
     out = orch.invoke(
       run_id=f"eval_{dataset_kind}_{idx}",
       mode="evaluation",
       dset_df = dset,
       dset_row_index = idx,
-      # patient_raw=patient_raw,
-      # labs_raw={},
     )
 
-    # Pull risk score from aggregated output
-    # agg = out["final_output"]["result"]
-    # score = float(agg["clinical"]["risk_T2D_now"])
-    # pred = 1 if score >= threshold else 0
     score = extract_agg_and_score(out)
     if not isinstance(score, (int, float, np.floating)):
       raise TypeError(f"Risk score is not numeric. Got type={type(score)} value={score}")

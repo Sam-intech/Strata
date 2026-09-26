@@ -6,6 +6,10 @@ __pycache__/
 venv/
 .env
 .git/
+node_modules/
+.wrangler/
+.pytest_cache/
+.DS_Store
 artifacts/eval/
 data/raw/
 
@@ -14,6 +18,7 @@ notebook/
 eval/
 tests/
 requirements-dev.txt
+pytest.ini
 data/
 aws/
 DEPLOY.md

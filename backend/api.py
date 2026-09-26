@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import time
+from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -11,24 +12,10 @@ from pydantic import BaseModel, Field
 
 from orchestrator import build_orchestrator
 # ==========================================================
-# app = FastAPI(title="Strata Clinical API", version="1.0.0")
-
-# # Dev-safe localhost CORS (any port)
-# app.add_middleware(
-#   CORSMiddleware,
-#   allow_origin_regex=r"^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$",
-#   allow_credentials=False,
-#   allow_methods=["*"],
-#   allow_headers=["*"],
-# )
 
 
 MODEL_PATH = os.getenv("MODEL_PATH", "artifacts/diabetes_model.joblib")
 PREPROCESSOR_PATH = os.getenv("PREPROCESSOR_PATH", "artifacts/preprocessor.joblib")
-
-# Frontend origins (Vite default: http://localhost:5173)
-# ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
-
 
 
 # -----------------------------------------------------------------------------
@@ -40,8 +27,8 @@ def mgdl_to_mmolL(x: float) -> float:
   return x / 18.0182
 
 def hba1c_mmolmol_to_percent(x: float) -> float:
-  # NGSP(% ) = (IFCC mmol/mol + 2.152) / 10.929
-  return (x + 2.152) / 10.929
+  # IFCC mmol/mol = (NGSP % - 2.152) * 10.929  =>  NGSP % = mmol/mol / 10.929 + 2.152
+  return x / 10.929 + 2.152
 
 def parse_float(v: Any) -> Optional[float]:
   try:
@@ -65,30 +52,10 @@ class InferResponse(BaseModel):
 
 # -----------------------------------------------------------------------------
 # App
-app = FastAPI(title="Strata Clinical API", version="1.0.0")
-
-# Browser origins allowed to call the API. Local dev (any localhost port) is
-# always allowed; production origins come from CORS_ORIGINS (comma-separated).
-CORS_ORIGINS = [
-  o.strip()
-  for o in os.getenv("CORS_ORIGINS", "https://strata.samintech.dev").split(",")
-  if o.strip()
-]
-
-app.add_middleware(
-  CORSMiddleware,
-  allow_origins=CORS_ORIGINS,
-  allow_origin_regex=r"^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$",
-  allow_credentials=True,
-  allow_methods=["*"],
-  allow_headers=["*"],
-)
-
 ORCH = None  # initialized on startup
 
 
-@app.on_event("startup")
-def _startup() -> None:
+def _load_orchestrator() -> None:
   global ORCH
   # Fail fast if paths are wrong (common cause of silent 500s later)
   if not os.path.exists(MODEL_PATH):
@@ -108,6 +75,31 @@ def _startup() -> None:
     enable_explanations=enable_explanations,
   )
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+  _load_orchestrator()
+  yield
+
+
+app = FastAPI(title="Strata Clinical API", version="1.0.0", lifespan=lifespan)
+
+# Browser origins allowed to call the API. Local dev (any localhost port) is
+# always allowed; production origins come from CORS_ORIGINS (comma-separated).
+CORS_ORIGINS = [
+  o.strip()
+  for o in os.getenv("CORS_ORIGINS", "https://strata.samintech.dev").split(",")
+  if o.strip()
+]
+
+app.add_middleware(
+  CORSMiddleware,
+  allow_origins=CORS_ORIGINS,
+  allow_origin_regex=r"^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$",
+  allow_credentials=True,
+  allow_methods=["*"],
+  allow_headers=["*"],
+)
 
 @app.get("/health")
 def health() -> Dict[str, Any]:
@@ -132,7 +124,8 @@ def build_labs_raw(front: Dict[str, Any]) -> Dict[str, Any]:
       out["unit"] = str(u)
     d = labs.get(date_key)
     if d:
-      out["date"] = str(d)
+      # LaboratoryAgent uses the sample timestamp to decide whether a lab is recent
+      out["timestamp"] = str(d)
     return out
 
   built: Dict[str, Any] = {}
@@ -165,11 +158,8 @@ def map_frontend_payload_to_patient_input(front: Dict[str, Any]) -> Dict[str, An
   age = parse_float(front.get("age"))
   bmi = parse_float(front.get("bmi"))
 
-  # BP: backend expects one "blood_pressure" number (your schema uses float)
-  # We'll store systolic if present, else try parse "bp" or fallback None.
-  bp_sys = parse_float(front.get("bp_systolic") or front.get("bpSys"))
-  bp_dia = parse_float(front.get("bp_diastolic") or front.get("bpDia"))
-  blood_pressure = bp_sys if bp_sys is not None else None
+  # BP: the model takes a single blood_pressure value, so use systolic
+  blood_pressure = parse_float(front.get("bp_systolic") or front.get("bpSys"))
 
   # Hypertension / heart disease: backend expects bool
   hypertension = front.get("hypertension")
@@ -216,7 +206,6 @@ def map_frontend_payload_to_patient_input(front: Dict[str, Any]) -> Dict[str, An
 
 @app.post("/infer", response_model=InferResponse)
 def infer(req: InferRequest) -> InferResponse:
-  global ORCH
   if ORCH is None:
     raise HTTPException(status_code=500, detail="Orchestrator not initialized")
   
@@ -240,7 +229,6 @@ def infer(req: InferRequest) -> InferResponse:
   except Exception as e:
     raise HTTPException(status_code=500, detail=f"Inference failed: {e}")
 
-  # run_id = f"run_{time.strftime('%Y_%m_%d')}_{int(time.time())}"
   return InferResponse(run_id=run_id, final_output=final_output)
 
 

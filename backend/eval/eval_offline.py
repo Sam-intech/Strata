@@ -72,6 +72,7 @@ def main() -> None:
   # Use evaluation mode so ground_truth is available in trace (optional but clean)
   test_dset = x_test.copy()
   test_dset[TARGET] = y_test.values
+  test_dset = test_dset.reset_index(drop=True)
 
   for i in range(len(test_dset)):
     out = orch.invoke(
@@ -82,8 +83,8 @@ def main() -> None:
       labs_raw={},  # no labs for now
     )
 
-    diag_label = out["result"]["diagnostic"]["label"]
-    risk_prob = out["result"]["clinical"]["risk_T2D_now"]
+    diag_label = out["diagnostic"]["label"]
+    risk_prob = out["clinical"]["risk_T2D_now"]
 
     y_pred.append(label_to_binary(diag_label, treat_uncertain_as_positive=True))
     y_prob.append(float(risk_prob))

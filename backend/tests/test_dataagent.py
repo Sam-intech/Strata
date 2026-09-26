@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -19,23 +21,28 @@ from agents.data_agent import (
 DATASETS = {
   "pima": {
     "loader": load_pima,
-    "path": Path("data/raw/concluded/pima_indians.csv"),
+    "path": ROOT / "data/raw/concluded/pima_indians.csv",
   },
   "diabetes_dset1": {
     "loader": load_diabetes_prediction,
-    "path": Path("data/raw/concluded/diabetes_dset1.csv"),
+    "path": ROOT / "data/raw/concluded/diabetes_dset1.csv",
   },
   "mohammed": {
     "loader": load_mohammed,
-    "path": Path("data/raw/concluded/mohammed.csv"),
+    "path": ROOT / "data/raw/concluded/mohammed.csv",
   },
   "diabetes_dset2_readmission": {
     "loader": load_diabetes_readmission,
-    "path": Path("data/raw/concluded/diabetes_dset2.csv"),
+    "path": ROOT / "data/raw/concluded/diabetes_dset2.csv",
   },
 }
 
 
+@pytest.mark.parametrize(
+  ("name", "loader", "path"),
+  [(name, cfg["loader"], cfg["path"]) for name, cfg in DATASETS.items()],
+  ids=list(DATASETS),
+)
 def test_dataset(name, loader, path):
   print(f"\n=== Testing dataset: {name} ===")
 

@@ -124,14 +124,13 @@ def run_eval(*, pima_csv: Path, model_path: Path, preprocessor_path: Path, test_
       labs_raw={},  # pima has no real labs payload; features already present
     )
 
-    agg = out["result"]
-    gt = agg.get("ground_truth", None)
+    gt = out["evaluation"]["ground_truth"]
 
     # Model probability (ClinicalAssessmentAgent output)
-    risk = safe_float(agg["clinical"]["risk_T2D_now"])
+    risk = safe_float(out["clinical"]["risk_T2D_now"])
 
     # Final label (DiagnosticAgent output)
-    diag_label = str(agg["diagnostic"]["label"])
+    diag_label = str(out["diagnostic"]["label"])
 
     y_true.append(int(gt) if gt is not None else 0)
     y_prob.append(risk)
