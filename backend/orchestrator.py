@@ -390,7 +390,13 @@ class StrataOrchestrator:
     if self.explanation_agent is None:
       return {"explanation_output": None}
 
-    explanation = self.explanation_agent.render(trace=state["aggregated"])
+    # The LLM explanation is optional: if the provider fails (no credit, rate
+    # limit, outage) still return the risk score, triage and diagnosis.
+    try:
+      explanation = self.explanation_agent.render(trace=state["aggregated"])
+    except Exception as e:
+      logging.getLogger("strata.orchestrator").warning("Explanation skipped: %s", e)
+      return {"explanation_output": None}
     return {"explanation_output": explanation}
   
 
