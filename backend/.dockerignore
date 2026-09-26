@@ -15,3 +15,7 @@ eval/
 tests/
 requirements-dev.txt
 data/
+aws/
+DEPLOY.md
+Dockerfile
+artifacts/eval_pima/
