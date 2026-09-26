@@ -65,7 +65,7 @@ def _load_orchestrator() -> None:
 
   # LLM explanations need an OpenAI key; without one, serve risk results
   # without explanations instead of crashing the whole server at startup.
-  enable_explanations = bool(os.getenv("OPENAI_API_KEY"))
+  enable_explanations = bool(os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY"))
   if not enable_explanations:
     print("OPENAI_API_KEY not set: starting with LLM explanations disabled")
 

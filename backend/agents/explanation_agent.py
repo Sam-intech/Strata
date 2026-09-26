@@ -110,7 +110,9 @@ class ExplanationAgent:
 
     if self.config.force_json_output:
       try:
-        obj = json.loads(txt)
+        # Open models often wrap the JSON in ``` fences or add a sentence around it.
+        start, end = txt.find("{"), txt.rfind("}")
+        obj = json.loads(txt[start:end + 1] if start != -1 and end > start else txt)
         if not isinstance(obj, dict):
           raise ValueError("Rendered JSON is not an object.")
         return {"json": obj}
