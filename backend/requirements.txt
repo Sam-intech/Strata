@@ -12,5 +12,6 @@ scikit-learn==1.7.2
 joblib==1.5.2
 langgraph==1.0.5
 langchain-core==1.2.4
+typing-extensions==4.15.0
 openai==2.14.0
 httpx==0.28.1

@@ -3,31 +3,18 @@ from __future__ import annotations
 import os
 import json
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Literal
 
 import pandas as pd
 
-from orchestrator import build_orchestrator
-from agents.data_agent import FEATURES, TARGET
+from orchestrator import build_orchestrator  # also loads backend/.env
 # ======================================================================================
-def load_dotenv(path: Path) -> None:
-  if not path.exists():
-    return
-  for line in path.read_text().splitlines():
-    line = line.strip()
-    if not line or line.startswith("#") or "=" not in line:
-      continue
-    k, v = line.split("=", 1)
-    k = k.strip()
-    v = v.strip().strip('"').strip("'")
-    os.environ.setdefault(k, v)
-
 
 
 MODE: Literal["inference", "evaluation"] = "inference"
 
 # Paths are relative to the backend/ folder (i.e., run: `cd backend && python main.py`)
-DATASET_PATH = Path("data/raw/eval/diabetes_eval_merged.csv")
+DATASET_PATH = Path("data/eval/diabetes_eval_merged.csv")
 MODEL_PATH = Path("artifacts/diabetes_model.joblib")
 PREPROCESSOR_PATH = Path("artifacts/preprocessor.joblib")
 
@@ -40,21 +27,12 @@ def _assert_exists(path: Path, label: str) -> None:
       f"- Or update the path in main.py.\n"
     )
 
-# def _extract_patient_from_row(row: Dict[str, Any]) -> Dict[str, Any]:
-#   # Only keep features the pipeline expects
-#   return {k: row.get(k) for k in FEATURES if k in row}
-
 
 def main() -> None:
-  load_dotenv(Path(".env"))
-
-  if not os.getenv("OPENAI_API_KEY"):
-    raise RuntimeError(
-      "OPENAI_API_KEY is not set. Add it to backend/.env or export it before running.\n"
-      "Example:\n"
-      '  export OPENAI_API_KEY="sk-..."\n'
-      "  python main.py\n"
-    )
+  # LLM explanations need an OpenAI key; without one, run the rest of the pipeline.
+  enable_explanations = bool(os.getenv("OPENAI_API_KEY"))
+  if not enable_explanations:
+    print("OPENAI_API_KEY not set: running with LLM explanations disabled")
 
   # ------------------------------------------------------------------------------------
   # Required artifacts
@@ -64,7 +42,7 @@ def main() -> None:
   orch = build_orchestrator(
     model_path=MODEL_PATH,
     preprocessor_path=PREPROCESSOR_PATH,
-    enable_explanations=True,
+    enable_explanations=enable_explanations,
     use_checkpointer=False,
     sqlite_path=None,
   )

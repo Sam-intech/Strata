@@ -4,11 +4,11 @@ import PatientForm from "./components/patientforms";
 import ResultsPanel from "./components/resultspanel";
 // ========================================================
 
-// Replace with real backend call later
-async function infer(payload: any) {
-  const base = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+// Backend API base URL (set VITE_API_BASE_URL in production)
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
-  const res = await fetch(`${base}/infer`, {
+async function infer(payload: any) {
+  const res = await fetch(`${API_BASE}/infer`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ payload}),
@@ -116,5 +116,3 @@ export default function App() {
     </div>
   );
 }
-
-console.log("API base:", import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000");

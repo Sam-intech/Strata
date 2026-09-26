@@ -23,8 +23,8 @@ services:
     ports:
       - "5173:5173"
     environment:
-      # IMPORTANT: point the frontend to the backend container
-      - VITE_API_BASE=http://127.0.0.1:8000
+      # the browser calls the API, so this is the host-mapped backend port
+      - VITE_API_BASE_URL=http://127.0.0.1:8000
     volumes:
       # optional: live reload during dev (remove for prod-like runs)
       - ./frontend:/app

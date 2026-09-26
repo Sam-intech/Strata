@@ -23,8 +23,8 @@ def main():
     "gender": "female",
     "age": 39,
     "bmi": 29.0,
-    "glucose": 9.8,     # mmol/L -> should convert to ~176 mg/dL
-    "hba1c": 52,        # mmol/mol -> should convert to ~4.76%
+    "glucose": 9.8,     # mmol/L -> ~176 mg/dL (conversion happens in api.py, not here)
+    "hba1c": 52,        # mmol/mol -> ~6.9% (conversion happens in api.py, not here)
     "hypertension": 0,
     "heart_disease": 0,
     "smoking_history": "never"

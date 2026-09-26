@@ -442,6 +442,13 @@ class StrataOrchestrator:
       },
     }
 
+    # Evaluation runs need the dataset label to score predictions against
+    if agg.get("mode") == "evaluation":
+      output["evaluation"] = {
+        "dset_row_index": agg.get("dset_row_index"),
+        "ground_truth": agg.get("ground_truth"),
+      }
+
     return {"final_output": output}
 
 

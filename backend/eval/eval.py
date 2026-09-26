@@ -51,8 +51,7 @@ def _extract_mas_prediction(final_output: Dict[str, Any]) -> Tuple[float, int]:
     Uses the MAS clinical risk score as probability prediction.
     Returns: (y_proba, y_pred)
     """
-    result = final_output.get("result", {})
-    clinical = result.get("clinical", {})
+    clinical = final_output.get("clinical", {})
 
     y_proba = _safe_float(clinical.get("risk_T2D_now"))
     if y_proba is None:
@@ -114,7 +113,6 @@ def evaluate_mas(cfg: EvalConfig) -> Dict[str, Any]:
             mode="evaluation",
             dset_df=df,
             dset_row_index=i,
-            patient_raw=None,
             labs_raw={},
         )
 
@@ -132,8 +130,8 @@ def evaluate_mas(cfg: EvalConfig) -> Dict[str, Any]:
                 "y_proba": float(proba),
                 "y_pred": pred,
                 # lightweight trace hooks (useful in error analysis later)
-                "triage_label": out.get("result", {}).get("clinical", {}).get("triage_label"),
-                "diagnostic_label": out.get("result", {}).get("diagnostic", {}).get("label"),
+                "triage_label": out.get("clinical", {}).get("triage_label"),
+                "diagnostic_label": out.get("diagnostic", {}).get("label"),
             }
         )
 
